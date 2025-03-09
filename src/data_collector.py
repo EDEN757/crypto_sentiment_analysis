@@ -1,7 +1,7 @@
 """Data collector module for fetching financial news and price data.
 
 This module provides functions to collect financial news articles from NewsAPI
-and price data for Bitcoin and S&P 500 from Yahoo Finance.
+and price data for financial assets from Yahoo Finance.
 """
 
 import time
@@ -25,18 +25,22 @@ class DataCollector:
         self.news_api = NewsApiClient(api_key=config.NEWS_API_KEY)
         logger.info("Data collector initialized")
     
-    def collect_bitcoin_news(self) -> List[Dict[str, Any]]:
-        """Collect Bitcoin news articles from NewsAPI.
+    def collect_news_for_query(self, query: str, collection_name: str) -> List[Dict[str, Any]]:
+        """Collect news articles for a specific query from NewsAPI.
         
+        Args:
+            query: The search query string
+            collection_name: The name of the collection for storing articles
+            
         Returns:
             List of news articles
         """
         try:
-            logger.info("Collecting Bitcoin news articles")
+            logger.info(f"Collecting news articles for query: '{query}'")
             
             # Get news from the last 24 hours (NewsAPI free tier limitation)
             response = self.news_api.get_everything(
-                q=config.BITCOIN_QUERY,
+                q=query,
                 language='en',
                 sort_by='publishedAt',
                 page_size=100,  # Maximum allowed by NewsAPI
@@ -44,57 +48,37 @@ class DataCollector:
             )
             
             articles = response.get('articles', [])
-            logger.info(f"Collected {len(articles)} Bitcoin news articles")
+            logger.info(f"Collected {len(articles)} articles for query: '{query}'")
+            
+            # Store articles in the database
+            inserted_count = db_client.insert_articles(collection_name, articles)
+            logger.info(f"Stored {inserted_count} new articles in {collection_name}")
             
             return articles
             
         except Exception as e:
-            logger.error(f"Failed to collect Bitcoin news: {str(e)}")
+            logger.error(f"Failed to collect news for query '{query}': {str(e)}")
             return []
     
-    def collect_global_economy_news(self) -> List[Dict[str, Any]]:
-        """Collect global economy news articles from NewsAPI.
+    def collect_price_data(self, symbol: str, collection_name: str) -> Optional[Dict[str, Any]]:
+        """Collect price data for a financial asset from Yahoo Finance.
         
+        Args:
+            symbol: The Yahoo Finance symbol
+            collection_name: The name of the collection for storing price data
+            
         Returns:
-            List of news articles
+            Price data or None if collection fails
         """
         try:
-            logger.info("Collecting global economy news articles")
+            logger.info(f"Collecting price data for {symbol}")
             
-            # Get news from the last 24 hours (NewsAPI free tier limitation)
-            response = self.news_api.get_everything(
-                q=config.GLOBAL_ECONOMY_QUERY,
-                language='en',
-                sort_by='publishedAt',
-                page_size=100,  # Maximum allowed by NewsAPI
-                from_param=(datetime.utcnow() - timedelta(days=1)).date().isoformat()
-            )
-            
-            articles = response.get('articles', [])
-            logger.info(f"Collected {len(articles)} global economy news articles")
-            
-            return articles
-            
-        except Exception as e:
-            logger.error(f"Failed to collect global economy news: {str(e)}")
-            return []
-    
-    def collect_bitcoin_price(self) -> Optional[Dict[str, Any]]:
-        """Collect Bitcoin price data from Yahoo Finance.
-        
-        Returns:
-            Bitcoin price data or None if collection fails
-        """
-        try:
-            logger.info("Collecting Bitcoin price data")
-            
-            # Get Bitcoin-USD data
-            btc = yf.Ticker("BTC-USD")
-            # Get more detailed price history with datetime index
-            hist = btc.history(period="1d", interval="1h")
+            # Get price data
+            ticker = yf.Ticker(symbol)
+            hist = ticker.history(period="1d", interval="1h")
             
             if hist.empty:
-                logger.warning("No Bitcoin price data available")
+                logger.warning(f"No price data available for {symbol}")
                 return None
             
             # Get the latest price data
@@ -103,7 +87,7 @@ class DataCollector:
             latest_datetime = hist.index[-1].to_pydatetime()
             
             price_data = {
-                "symbol": "BTC-USD",
+                "symbol": symbol,
                 "timestamp": latest_datetime,  # Use the actual price timestamp
                 "collection_time": datetime.utcnow(),  # When we collected it
                 "price": latest["Close"],
@@ -114,145 +98,109 @@ class DataCollector:
                 "raw_data": latest.to_dict()
             }
             
-            logger.info(f"Collected Bitcoin price: ${price_data['price']:.2f} from {latest_datetime}")
+            logger.info(f"Collected {symbol} price: ${price_data['price']:.2f} from {latest_datetime}")
             
-            return price_data
+            # Store price data in the database
+            success = db_client.insert_price_data(collection_name, price_data)
+            if success:
+                logger.info(f"Stored price data for {symbol} in {collection_name}")
             
-        except Exception as e:
-            logger.error(f"Failed to collect Bitcoin price data: {str(e)}")
-            return None
-    
-    def collect_sp500_price(self) -> Optional[Dict[str, Any]]:
-        """Collect S&P 500 index price data from Yahoo Finance.
-        
-        Returns:
-            S&P 500 price data or None if collection fails
-        """
-        try:
-            logger.info("Collecting S&P 500 price data")
-            
-            # Get S&P 500 data
-            sp500 = yf.Ticker("^GSPC")
-            # Get more detailed price history with datetime index
-            hist = sp500.history(period="1d", interval="1h")
-            
-            if hist.empty:
-                logger.warning("No S&P 500 price data available")
-                return None
-            
-            # Get the latest price data
-            latest = hist.iloc[-1]
-            # Get the datetime index for the latest price
-            latest_datetime = hist.index[-1].to_pydatetime()
-            
-            price_data = {
-                "symbol": "^GSPC",
-                "timestamp": latest_datetime,  # Use the actual price timestamp
-                "collection_time": datetime.utcnow(),  # When we collected it
-                "price": latest["Close"],
-                "open": latest["Open"],
-                "high": latest["High"],
-                "low": latest["Low"],
-                "volume": latest["Volume"],
-                "raw_data": latest.to_dict()
-            }
-            
-            logger.info(f"Collected S&P 500 price: ${price_data['price']:.2f} from {latest_datetime}")
-            
-            return price_data
+            return price_data if success else None
             
         except Exception as e:
-            logger.error(f"Failed to collect S&P 500 price data: {str(e)}")
+            logger.error(f"Failed to collect price data for {symbol}: {str(e)}")
             return None
     
-    def collect_and_store_all_data(self) -> Tuple[int, int, bool, bool]:
-        """Collect and store all financial data.
+    def collect_and_store_all_data(self) -> Dict[str, Any]:
+        """Collect and store all financial data based on configuration.
         
-        This method collects both news articles and price data in a single execution.
-        It is designed to be run every 3 hours via crontab to ensure regular data collection.
-        Even if one type of data collection fails, it will still attempt to collect the others.
+        This method collects both news articles and price data in a single execution
+        based on the assets and news sources defined in the configuration.
         
         Returns:
-            Tuple of (bitcoin_articles_count, global_economy_articles_count, 
-                      bitcoin_price_stored, sp500_price_stored)
+            Dictionary with collection results
         """
-        logger.info(f"Starting 3-hour data collection cycle at {datetime.now()}")
+        interval = config.DATA_COLLECTION_INTERVAL_HOURS
+        logger.info(f"Starting {interval}-hour data collection cycle at {datetime.now()}")
         
-        # Track collection status and results
-        collection_results = {
-            "bitcoin_articles": 0,
-            "global_economy_articles": 0,
-            "bitcoin_price": False,
-            "sp500_price": False
+        # Initialize collection results
+        results = {
+            "news_articles": {},
+            "price_data": {}
         }
         
-        # 1. Collect and store Bitcoin news
-        try:
-            logger.info("--- COLLECTING BITCOIN NEWS ---")
-            bitcoin_articles = self.collect_bitcoin_news()
-            collection_results["bitcoin_articles"] = db_client.insert_articles(
-                config.BITCOIN_ARTICLES_COLLECTION, bitcoin_articles
-            )
-        except Exception as e:
-            logger.error(f"Bitcoin news collection failed: {str(e)}", exc_info=True)
+        # 1. Collect and store news for each configured query
+        for news_config in config.DEFAULT_CONFIG["news_queries"]:
+            try:
+                logger.info(f"--- COLLECTING {news_config['name']} NEWS ---")
+                query = news_config["query"]
+                collection = news_config["collection"]
+                articles = self.collect_news_for_query(query, collection)
+                results["news_articles"][news_config["name"]] = len(articles)
+            except Exception as e:
+                logger.error(f"{news_config['name']} news collection failed: {str(e)}", exc_info=True)
+                results["news_articles"][news_config["name"]] = 0
         
-        # 2. Collect and store global economy news
-        try:
-            logger.info("--- COLLECTING GLOBAL ECONOMY NEWS ---")
-            global_economy_articles = self.collect_global_economy_news()
-            collection_results["global_economy_articles"] = db_client.insert_articles(
-                config.GLOBAL_ECONOMY_ARTICLES_COLLECTION, global_economy_articles
-            )
-        except Exception as e:
-            logger.error(f"Global economy news collection failed: {str(e)}", exc_info=True)
+        # 2. Collect and store news and price data for crypto assets
+        for crypto in config.DEFAULT_CONFIG["assets"]["crypto"]:
+            try:
+                # Collect news
+                if "query" in crypto and "news_collection" in crypto:
+                    logger.info(f"--- COLLECTING {crypto['name']} NEWS ---")
+                    query = crypto["query"]
+                    collection = crypto["news_collection"]
+                    articles = self.collect_news_for_query(query, collection)
+                    results["news_articles"][crypto["name"]] = len(articles)
+                
+                # Collect price data
+                logger.info(f"--- COLLECTING {crypto['name']} PRICE ---")
+                symbol = crypto["symbol"]
+                collection = crypto["collection"]
+                price_data = self.collect_price_data(symbol, collection)
+                results["price_data"][crypto["name"]] = price_data is not None
+            except Exception as e:
+                logger.error(f"{crypto['name']} data collection failed: {str(e)}", exc_info=True)
+                if crypto["name"] not in results["news_articles"]:
+                    results["news_articles"][crypto["name"]] = 0
+                results["price_data"][crypto["name"]] = False
         
-        # 3. Collect and store Bitcoin price
-        try:
-            logger.info("--- COLLECTING BITCOIN PRICE ---")
-            bitcoin_price = self.collect_bitcoin_price()
-            if bitcoin_price:
-                collection_results["bitcoin_price"] = db_client.insert_price_data(
-                    config.BITCOIN_PRICE_COLLECTION, bitcoin_price
-                )
-        except Exception as e:
-            logger.error(f"Bitcoin price collection failed: {str(e)}", exc_info=True)
+        # 3. Collect and store price data for indices
+        for index in config.DEFAULT_CONFIG["assets"]["indices"]:
+            try:
+                logger.info(f"--- COLLECTING {index['name']} PRICE ---")
+                symbol = index["symbol"]
+                collection = index["collection"]
+                price_data = self.collect_price_data(symbol, collection)
+                results["price_data"][index["name"]] = price_data is not None
+            except Exception as e:
+                logger.error(f"{index['name']} price collection failed: {str(e)}", exc_info=True)
+                results["price_data"][index["name"]] = False
         
-        # 4. Collect and store S&P 500 price
-        try:
-            logger.info("--- COLLECTING S&P 500 PRICE ---")
-            sp500_price = self.collect_sp500_price()
-            if sp500_price:
-                collection_results["sp500_price"] = db_client.insert_price_data(
-                    config.SP500_COLLECTION, sp500_price
-                )
-        except Exception as e:
-            logger.error(f"S&P 500 price collection failed: {str(e)}", exc_info=True)
-        
-        # Log summary of collection results
+        # Log summary
         logger.info("=== DATA COLLECTION SUMMARY ===")
-        logger.info(f"- Bitcoin articles: {collection_results['bitcoin_articles']} collected")
-        logger.info(f"- Global economy articles: {collection_results['global_economy_articles']} collected")
-        logger.info(f"- Bitcoin price: {'Collected and stored' if collection_results['bitcoin_price'] else 'Failed'}")
-        logger.info(f"- S&P 500 price: {'Collected and stored' if collection_results['sp500_price'] else 'Failed'}")
-        logger.info(f"Next collection scheduled in 3 hours")
+        for name, count in results["news_articles"].items():
+            logger.info(f"- {name} articles: {count} collected")
+        for name, success in results["price_data"].items():
+            logger.info(f"- {name} price: {'Collected and stored' if success else 'Failed'}")
+        logger.info(f"Next collection scheduled in {interval} hours")
         
-        return (
-            collection_results["bitcoin_articles"],
-            collection_results["global_economy_articles"],
-            collection_results["bitcoin_price"],
-            collection_results["sp500_price"]
-        )
+        return results
 
 def run_collector():
     """Run the data collector once."""
     collector = DataCollector()
-    result = collector.collect_and_store_all_data()
+    results = collector.collect_and_store_all_data()
+    
+    # Log completion
+    article_count = sum(count for count in results["news_articles"].values())
+    price_count = sum(1 for success in results["price_data"].values() if success)
+    price_total = len(results["price_data"])
     
     logger.info(f"Data collection complete: "
-                f"Bitcoin articles: {result[0]}, "
-                f"Global economy articles: {result[1]}, "
-                f"Bitcoin price: {'Stored' if result[2] else 'Failed'}, "
-                f"S&P 500 price: {'Stored' if result[3] else 'Failed'}")
+                f"Articles: {article_count}, "
+                f"Price data: {price_count}/{price_total}")
+    
+    return results
 
 def run_collector_scheduled():
     """Run the data collector on a schedule."""

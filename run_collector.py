@@ -39,7 +39,7 @@ def main():
     
     # Create the lock file
     with open(lock_file, 'w') as f:
-        f.write(f"3-hour collection cycle started at {collection_start_time}")
+        f.write(f"{config.DATA_COLLECTION_INTERVAL_HOURS}-hour collection cycle started at {collection_start_time}")
     
     # Configure logging specifically for cron execution
     log_file = BASE_DIR / 'logs' / f'cron-collector-{collection_start_time.strftime("%Y%m%d")}.log'
@@ -56,29 +56,36 @@ def main():
     )
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Starting 3-hour data collection cycle at {collection_start_time}")
-    logger.info(f"This cycle will collect: Bitcoin news, Global economy news, Bitcoin price, S&P 500 price")
+    interval = config.DATA_COLLECTION_INTERVAL_HOURS
+    logger.info(f"Starting {interval}-hour data collection cycle at {collection_start_time}")
+    logger.info(f"Using configuration with {len(config.DEFAULT_CONFIG['assets']['crypto'])} crypto assets, "
+                f"{len(config.DEFAULT_CONFIG['assets']['indices'])} indices, and "
+                f"{len(config.DEFAULT_CONFIG['news_queries'])} news queries")
     
     success = False
     try:
         # Collect data
         collector = DataCollector()
-        result = collector.collect_and_store_all_data()
-        
-        # Log results
-        logger.info(f"=== 3-HOUR COLLECTION CYCLE COMPLETED ===")
-        logger.info(f"Bitcoin articles: {result[0]} collected and stored")
-        logger.info(f"Global economy articles: {result[1]} collected and stored")
-        logger.info(f"Bitcoin price data: {'Successfully stored' if result[2] else 'Failed to store'}")
-        logger.info(f"S&P 500 price data: {'Successfully stored' if result[3] else 'Failed to store'}")
-        logger.info(f"Total collection time: {(datetime.now() - collection_start_time).total_seconds()/60:.1f} minutes")
-        logger.info(f"Next collection cycle scheduled in 3 hours")
+        results = collector.collect_and_store_all_data()
         
         # Check if we have at least some data collected successfully
-        success = result[0] > 0 or result[1] > 0 or result[2] or result[3]
+        article_count = sum(count for count in results["news_articles"].values())
+        price_count = sum(1 for success in results["price_data"].values() if success)
+        price_total = len(results["price_data"])
+        
+        success = article_count > 0 or price_count > 0
+        
+        # Log results
+        logger.info(f"=== {interval}-HOUR COLLECTION CYCLE COMPLETED ===")
+        for name, count in results["news_articles"].items():
+            logger.info(f"- {name} articles: {count} collected and stored")
+        for name, success in results["price_data"].items():
+            logger.info(f"- {name} price: {'Successfully stored' if success else 'Failed to store'}")
+        logger.info(f"Total collection time: {(datetime.now() - collection_start_time).total_seconds()/60:.1f} minutes")
+        logger.info(f"Next collection cycle scheduled in {interval} hours")
                    
     except Exception as e:
-        logger.error(f"3-hour data collection cycle failed: {str(e)}", exc_info=True)
+        logger.error(f"{interval}-hour data collection cycle failed: {str(e)}", exc_info=True)
         sys.exit(1)
     finally:
         # Always remove the lock file when done
@@ -92,4 +99,4 @@ def main():
         sys.exit(1)
 
 if __name__ == "__main__":
-    main() 
+    main()

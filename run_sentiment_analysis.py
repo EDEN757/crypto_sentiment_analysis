@@ -2,8 +2,8 @@
 """
 Sentiment analysis script optimized for crontab execution.
 
-This script analyzes the sentiment of collected news articles and stores
-the results in the database for later retrieval.
+This script analyzes the sentiment of collected news articles using the FinBERT model
+and stores the results in the database for later retrieval.
 """
 
 import os
@@ -18,14 +18,32 @@ BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
 # Import project modules
-from src.sentiment_analyzer import SentimentAnalyzer
+from src.sentiment_analyzer import analyze_and_store_all_sentiments
 from src.database import db_client
 from src import config
 
 def main():
     """Run sentiment analysis once and store results."""
+    # Create a lock file to prevent overlapping execution
+    lock_file = BASE_DIR / 'sentiment_analysis.lock'
+    analysis_start_time = datetime.now()
+    
+    if lock_file.exists():
+        # Check if the lock file is recent (< 30 minutes old)
+        lock_time = datetime.fromtimestamp(os.path.getmtime(lock_file))
+        if (analysis_start_time - lock_time).total_seconds() < 1800:  # 30 minutes
+            print(f"WARNING: Another sentiment analysis process appears to be running (lock file created at {lock_time}). Exiting.")
+            sys.exit(0)
+        else:
+            # Lock file is old, probably from a crashed process
+            print(f"WARNING: Found a stale lock file from {lock_time}. Continuing anyway.")
+    
+    # Create the lock file
+    with open(lock_file, 'w') as f:
+        f.write(f"Sentiment analysis started at {analysis_start_time}")
+    
     # Configure logging specifically for cron execution
-    log_file = BASE_DIR / 'logs' / f'cron-sentiment-{datetime.now().strftime("%Y%m%d")}.log'
+    log_file = BASE_DIR / 'logs' / f'cron-sentiment-{analysis_start_time.strftime("%Y%m%d")}.log'
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
     # Use both file and stderr logging for cron
@@ -39,19 +57,12 @@ def main():
     )
     
     logger = logging.getLogger(__name__)
-    logger.info(f"Starting scheduled sentiment analysis at {datetime.now()}")
+    logger.info(f"Starting scheduled sentiment analysis at {analysis_start_time}")
+    logger.info(f"Using FinBERT model: {config.SENTIMENT_MODEL}")
     
     try:
-        # Analyze sentiment
-        analyzer = SentimentAnalyzer()
-        comparison = analyzer.compare_bitcoin_vs_global_economy_sentiment()
-        
-        # Create a collection for sentiment analysis results if it doesn't exist
-        SENTIMENT_RESULTS_COLLECTION = 'sentiment_results'
-        
-        # Store results in MongoDB
-        result_id = db_client.db[SENTIMENT_RESULTS_COLLECTION].insert_one(comparison).inserted_id
-        logger.info(f"Stored sentiment analysis results with ID: {result_id}")
+        # Analyze sentiment for all configured collections
+        comparison = analyze_and_store_all_sentiments()
         
         # Also write to a local JSON file for easy access
         data_dir = BASE_DIR / 'data'
@@ -59,29 +70,57 @@ def main():
         
         # Convert datetime to string for JSON serialization
         comparison_copy = comparison.copy()
-        comparison_copy['timestamp'] = comparison_copy['timestamp'].isoformat()
+        if "timestamp" in comparison_copy:
+            comparison_copy["timestamp"] = comparison_copy["timestamp"].isoformat()
         
-        with open(data_dir / f'sentiment-{datetime.now().strftime("%Y%m%d-%H%M%S")}.json', 'w') as f:
+        with open(data_dir / f'sentiment-{analysis_start_time.strftime("%Y%m%d-%H%M%S")}.json', 'w') as f:
             json.dump(comparison_copy, f, indent=2)
         
         # Print summary to stdout/stderr for cron emails
         print("\n=== Sentiment Analysis Results ===")
-        print(f"Bitcoin: {comparison['bitcoin']['combined_score']:.4f} (from {comparison['bitcoin']['article_count']} articles)")
-        print(f"Global Economy: {comparison['global_economy']['combined_score']:.4f} (from {comparison['global_economy']['article_count']} articles)")
-        print(f"Difference: {comparison['difference']['combined_score_diff']:.4f}")
         
-        if comparison['difference']['combined_score_diff'] > 0:
-            print("Result: Bitcoin sentiment is more positive than global economy sentiment")
-        elif comparison['difference']['combined_score_diff'] < 0:
-            print("Result: Global economy sentiment is more positive than Bitcoin sentiment")
-        else:
-            print("Result: Bitcoin and global economy sentiment are approximately equal")
+        # Print results for each item in the comparison
+        for name, sentiment in comparison.items():
+            if name == "timestamp":
+                continue
+                
+            if isinstance(sentiment, dict) and "score" in sentiment:
+                print(f"{name}: {sentiment['score']:.4f} ({sentiment.get('label', 'unknown')}) from {sentiment.get('article_count', 0)} articles")
+        
+        # Identify any crypto assets for specific comparison
+        crypto_assets = [crypto["name"] for crypto in config.DEFAULT_CONFIG["assets"]["crypto"] 
+                        if "news_collection" in crypto]
+        
+        # Compare first crypto asset with global economy if both exist
+        if crypto_assets and "Global Economy" in comparison:
+            crypto = crypto_assets[0]  # Take first crypto asset
+            if crypto in comparison:
+                crypto_score = comparison[crypto]["score"]
+                economy_score = comparison["Global Economy"]["score"]
+                diff = crypto_score - economy_score
+                
+                print(f"\nDifference ({crypto} - Global Economy): {diff:.4f}")
+                
+                if diff > 0.1:
+                    result_msg = f"{crypto} sentiment is more positive than global economy"
+                elif diff < -0.1:
+                    result_msg = f"Global economy sentiment is more positive than {crypto}"
+                else:
+                    result_msg = f"{crypto} and global economy sentiment are approximately equal"
+                    
+                print(f"Result: {result_msg}")
+        
+        logger.info(f"Total sentiment analysis time: {(datetime.now() - analysis_start_time).total_seconds()/60:.1f} minutes")
                    
     except Exception as e:
         logger.error(f"Sentiment analysis failed: {str(e)}", exc_info=True)
         sys.exit(1)
+    finally:
+        # Always remove the lock file when done
+        if lock_file.exists():
+            os.remove(lock_file)
         
     logger.info("Sentiment analysis script completed successfully")
 
 if __name__ == "__main__":
-    main() 
+    main()

@@ -6,9 +6,10 @@ database operations such as inserting, updating, and querying data.
 
 import pymongo
 from pymongo.errors import ConnectionFailure, PyMongoError
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 from typing import Dict, List, Any, Optional
+from bson import ObjectId
 
 from . import config
 
@@ -46,33 +47,78 @@ class MongoDBClient:
     def _create_indices(self):
         """Create indices for faster queries."""
         try:
-            # Bitcoin articles collection - index on published_at and source
-            self.db[config.BITCOIN_ARTICLES_COLLECTION].create_index(
-                [("published_at", pymongo.DESCENDING), ("source.name", pymongo.ASCENDING)],
-                background=True
-            )
+            # Create indices for all article collections
+            self._create_article_indices(config.BITCOIN_ARTICLES_COLLECTION)
+            self._create_article_indices(config.GLOBAL_ECONOMY_ARTICLES_COLLECTION)
             
-            # Global economy articles collection - index on published_at and source
-            self.db[config.GLOBAL_ECONOMY_ARTICLES_COLLECTION].create_index(
-                [("published_at", pymongo.DESCENDING), ("source.name", pymongo.ASCENDING)],
-                background=True
-            )
+            # Create indices for all price collections
+            self._create_price_indices(config.BITCOIN_PRICE_COLLECTION)
+            self._create_price_indices(config.SP500_COLLECTION)
             
-            # Bitcoin price collection - index on timestamp
-            self.db[config.BITCOIN_PRICE_COLLECTION].create_index(
+            # Create indices for sentiment results
+            self.db[config.SENTIMENT_RESULTS_COLLECTION].create_index(
                 [("timestamp", pymongo.DESCENDING)],
                 background=True
             )
             
-            # SP500 collection - index on timestamp
-            self.db[config.SP500_COLLECTION].create_index(
-                [("timestamp", pymongo.DESCENDING)],
-                background=True
-            )
+            # Create additional indices for any custom collections in config
+            self._create_indices_for_custom_collections()
             
             logger.info("Created database indices")
         except PyMongoError as e:
             logger.error(f"Failed to create indices: {str(e)}")
+            
+    def _create_article_indices(self, collection_name: str):
+        """Create indices for an article collection."""
+        self.db[collection_name].create_index(
+            [("published_at", pymongo.DESCENDING), ("source.name", pymongo.ASCENDING)],
+            background=True
+        )
+        
+        # Add index for sentiment queries
+        self.db[collection_name].create_index(
+            [("sentiment.score", pymongo.DESCENDING), ("published_at", pymongo.DESCENDING)],
+            background=True,
+            sparse=True
+        )
+        
+        # Add index for finding articles without sentiment
+        self.db[collection_name].create_index(
+            [("sentiment", pymongo.ASCENDING), ("published_at", pymongo.DESCENDING)],
+            background=True,
+            sparse=True
+        )
+    
+    def _create_price_indices(self, collection_name: str):
+        """Create indices for a price collection."""
+        self.db[collection_name].create_index(
+            [("timestamp", pymongo.DESCENDING)],
+            background=True
+        )
+        
+        self.db[collection_name].create_index(
+            [("symbol", pymongo.ASCENDING), ("timestamp", pymongo.DESCENDING)],
+            background=True
+        )
+    
+    def _create_indices_for_custom_collections(self):
+        """Create indices for any custom collections defined in config."""
+        # Check for custom collections in crypto assets
+        for crypto in config.DEFAULT_CONFIG["assets"]["crypto"]:
+            if "collection" in crypto:
+                self._create_price_indices(crypto["collection"])
+            if "news_collection" in crypto:
+                self._create_article_indices(crypto["news_collection"])
+        
+        # Check for custom collections in indices assets
+        for index in config.DEFAULT_CONFIG["assets"]["indices"]:
+            if "collection" in index:
+                self._create_price_indices(index["collection"])
+        
+        # Check for custom collections in news queries
+        for news in config.DEFAULT_CONFIG["news_queries"]:
+            if "collection" in news:
+                self._create_article_indices(news["collection"])
     
     def insert_articles(self, collection_name: str, articles: List[Dict[str, Any]]) -> int:
         """Insert articles into the specified collection.
@@ -215,6 +261,64 @@ class MongoDBClient:
             logger.error(f"Failed to insert price data into {collection_name}: {str(e)}")
             return False
     
+    def update_article_sentiment(self, collection_name: str, article_id: Any, 
+                              sentiment: Dict[str, Any]) -> bool:
+        """Update the sentiment for an article.
+        
+        Args:
+            collection_name: The name of the collection
+            article_id: The ID of the article
+            sentiment: The sentiment data to save
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Convert string ID to ObjectId if needed
+            if isinstance(article_id, str):
+                article_id = ObjectId(article_id)
+                
+            # Update the article
+            result = self.db[collection_name].update_one(
+                {"_id": article_id},
+                {"$set": {
+                    "sentiment": sentiment,
+                    "sentiment_updated_at": datetime.utcnow()
+                }}
+            )
+            
+            if result.matched_count == 0:
+                logger.warning(f"No article found with ID {article_id} in {collection_name}")
+                return False
+                
+            logger.debug(f"Updated sentiment for article {article_id} in {collection_name}")
+            return True
+            
+        except PyMongoError as e:
+            logger.error(f"Failed to update article sentiment: {str(e)}")
+            return False
+    
+    def insert_sentiment_comparison(self, collection_name: str, 
+                                 comparison: Dict[str, Any]) -> bool:
+        """Insert sentiment comparison results.
+        
+        Args:
+            collection_name: The name of the collection
+            comparison: The sentiment comparison data
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Insert the results
+            result = self.db[collection_name].insert_one(comparison)
+            logger.info(f"Inserted sentiment comparison into {collection_name} with ID: {result.inserted_id}")
+            return True
+            
+        except PyMongoError as e:
+            logger.error(f"Failed to insert sentiment comparison: {str(e)}")
+            return False
+    
     def get_latest_articles(self, collection_name: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Get the latest articles from the specified collection.
         
@@ -235,6 +339,57 @@ class MongoDBClient:
             
         except PyMongoError as e:
             logger.error(f"Failed to get latest articles from {collection_name}: {str(e)}")
+            return []
+    
+    def get_articles_without_sentiment(self, collection_name: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get articles that haven't had sentiment analysis yet.
+        
+        Args:
+            collection_name: The name of the collection
+            limit: Maximum number of articles to return
+            
+        Returns:
+            List of articles without sentiment analysis
+        """
+        try:
+            articles = list(self.db[collection_name]
+                          .find({"sentiment": {"$exists": False}})
+                          .sort("published_at", pymongo.DESCENDING)
+                          .limit(limit))
+            logger.info(f"Retrieved {len(articles)} articles without sentiment from {collection_name}")
+            return articles
+            
+        except PyMongoError as e:
+            logger.error(f"Failed to get articles without sentiment: {str(e)}")
+            return []
+    
+    def get_articles_with_sentiment(self, collection_name: str, days: int = 1) -> List[Dict[str, Any]]:
+        """Get articles that have sentiment analysis from the past N days.
+        
+        Args:
+            collection_name: The name of the collection
+            days: Number of days to look back
+            
+        Returns:
+            List of articles with sentiment analysis
+        """
+        try:
+            # Calculate date range
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=days)
+            
+            articles = list(self.db[collection_name]
+                          .find({
+                              "sentiment": {"$exists": True},
+                              "published_at": {"$gte": start_date, "$lte": end_date}
+                          })
+                          .sort("published_at", pymongo.DESCENDING))
+            
+            logger.info(f"Retrieved {len(articles)} articles with sentiment from {collection_name} in the past {days} day(s)")
+            return articles
+            
+        except PyMongoError as e:
+            logger.error(f"Failed to get articles with sentiment: {str(e)}")
             return []
     
     def get_price_data(self, collection_name: str, 
@@ -268,6 +423,22 @@ class MongoDBClient:
         except PyMongoError as e:
             logger.error(f"Failed to get price data from {collection_name}: {str(e)}")
             return []
+    
+    def get_latest_sentiment_comparison(self) -> Optional[Dict[str, Any]]:
+        """Get the latest sentiment comparison results.
+        
+        Returns:
+            Latest sentiment comparison or None if not found
+        """
+        try:
+            result = self.db[config.SENTIMENT_RESULTS_COLLECTION].find_one(
+                sort=[("timestamp", pymongo.DESCENDING)]
+            )
+            return result
+            
+        except PyMongoError as e:
+            logger.error(f"Failed to get latest sentiment comparison: {str(e)}")
+            return None
     
     def close(self):
         """Close the MongoDB connection."""

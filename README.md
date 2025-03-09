@@ -1,160 +1,277 @@
-# Financial Sentiment Analysis Dashboard
+# Crypto Sentiment Analysis
 
-A Python-based dashboard for analyzing sentiment in financial news related to Bitcoin and global economy, with real-time price tracking.
+A scalable system for analyzing sentiment in cryptocurrency and financial news using NewsAPI data and the FinBERT model.
 
 ## Project Overview
 
-This project leverages Natural Language Processing (NLP) to analyze sentiment from financial news sources. It collects data from:
-- News articles about Bitcoin via NewsAPI
+This project automatically collects financial news and price data every 3 hours and performs sentiment analysis using FinBERT, a pre-trained NLP model specialized for financial text. It collects:
+
+- News articles about Bitcoin (or other configured cryptocurrencies) via NewsAPI
 - News articles about global economy via NewsAPI
 - Bitcoin price data via Yahoo Finance API
 - S&P 500 index price data via Yahoo Finance API
 
-All collected data is stored in a MongoDB database for later analysis and visualization.
+All collected data is stored in MongoDB with precise timestamps, making it ideal for time series analysis and correlation studies.
 
 ## Project Structure
 
 ```
 crypto_sentiment/
-├── config/               # Configuration files
-├── data/                 # Local data storage (if needed)
+├── config/               # Configuration files (app_config.json)
+├── data/                 # Local data storage (sentiment analysis results)
 ├── logs/                 # Application logs
+├── models/               # Downloaded models (auto-created)
 ├── src/                  # Source code
-│   ├── __init__.py       # Package initializer
+│   ├── __init__.py       
 │   ├── config.py         # Configuration loader
 │   ├── data_collector.py # Data collection from APIs
 │   ├── database.py       # MongoDB connection and operations
-│   ├── sentiment_analyzer.py # NLP sentiment analysis
+│   ├── sentiment_analyzer.py # FinBERT sentiment analysis
 ├── tests/                # Unit and integration tests
 ├── run_collector.py      # Script for collecting data (for crontab)
 ├── run_sentiment_analysis.py # Script for analyzing sentiment (for crontab)
-├── setup_crontab.py      # Helper script for setting up crontab
+├── setup_crontab.py      # Helper for setting up project and crontab
 ├── .env                  # Environment variables (not tracked in git)
-├── .env.example          # Example environment file (safe to commit)
-├── .gitignore            # Git ignore file
+├── .env.example          # Example environment file
+├── .gitignore            
 ├── requirements.txt      # Project dependencies
-└── README.md             # Project documentation
+└── README.md             # This file
 ```
+
+## Key Features
+
+- **Flexible Configuration**: Define which cryptocurrencies, indices, and news topics to track using a simple JSON configuration.
+- **FinBERT NLP Model**: Uses the state-of-the-art FinBERT sentiment analysis model trained specifically for financial text.
+- **Accurate Data Timestamps**: All data is stored with its original publication or market timestamp.
+- **Modular Design**: Easy to extend with new data sources, assets, or analysis methods.
+- **Automated Collection**: Configurable crontab integration for hands-off operation.
+- **Detailed Logging**: Comprehensive logging of all operations for troubleshooting.
+- **MongoDB Storage**: Scales well as your data grows over time.
 
 ## Setup Instructions
 
-1. Clone this repository
-2. Create a virtual environment:
+### Prerequisites
+
+- Python 3.8+ 
+- MongoDB instance (local or Atlas)
+- NewsAPI key (from https://newsapi.org/)
+- Linux system with crontab (for automated collection)
+
+### Installation
+
+1. Clone this repository:
+   ```
+   git clone https://github.com/yourusername/crypto_sentiment.git
+   cd crypto_sentiment
+   ```
+
+2. Create a virtual environment and install dependencies:
    ```
    python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-3. Install dependencies:
-   ```
    pip install -r requirements.txt
    ```
-4. Create a `.env` file based on `.env.example` and add your API keys
-5. Set up periodic data collection using one of the methods below
 
-## Running on a Linux Server with Crontab (Recommended)
-
-This project is designed to run optimally on a Linux server using crontab for scheduled execution:
-
-1. Make sure all scripts are executable:
-   ```
-   chmod +x run_collector.py run_sentiment_analysis.py setup_crontab.py
-   ```
-
-2. Run the automated crontab setup script:
+3. Run the setup script to configure your environment:
    ```
    python setup_crontab.py
    ```
    
-   This will:
-   - Ask for your preferred data collection interval (default: 3 hours)
-   - Preview the crontab entries
-   - Offer to install the crontab entries automatically or save them to a file
+   This will guide you through:
+   - Setting up API keys and MongoDB connection
+   - Configuring which assets and news to track
+   - Setting up crontab for automated data collection
 
-3. Verify your crontab is set up correctly:
+### Manual Configuration
+
+If you prefer to set things up manually:
+
+1. Create a `.env` file based on `.env.example` with your API keys and MongoDB connection:
    ```
-   crontab -l
+   # API Keys
+   NEWS_API_KEY=your_news_api_key_here
+   
+   # MongoDB Configuration
+   MONGODB_CONNECTION_STRING=mongodb+srv://username:password@cluster.mongodb.net/
+   MONGODB_DATABASE_NAME=crypto_sentiment
+   
+   # Logging
+   LOG_LEVEL=INFO
+   
+   # Data Collection
+   DATA_COLLECTION_INTERVAL_HOURS=3
    ```
 
-4. Monitor the logs in the `logs/` directory:
+2. Create a `config/app_config.json` file to define which assets to track:
+   ```json
+   {
+     "assets": {
+       "crypto": [
+         {
+           "name": "Bitcoin",
+           "symbol": "BTC-USD",
+           "collection": "bitcoin_price",
+           "query": "bitcoin OR btc",
+           "news_collection": "bitcoin_articles"
+         }
+       ],
+       "indices": [
+         {
+           "name": "S&P 500",
+           "symbol": "^GSPC",
+           "collection": "sp500"
+         }
+       ]
+     },
+     "news_queries": [
+       {
+         "name": "Global Economy",
+         "query": "global economy OR economic outlook OR financial markets",
+         "collection": "global_economy_articles"
+       }
+     ],
+     "collection_interval_hours": 3,
+     "sentiment_model": "ProsusAI/finbert"
+   }
    ```
-   tail -f logs/cron-collector-*.log
-   tail -f logs/cron-sentiment-*.log
+
+3. Make the scripts executable:
+   ```
+   chmod +x run_collector.py run_sentiment_analysis.py
    ```
 
-The crontab configuration will:
-- Run a complete data collection cycle every 3 hours (by default) that:
-  - Collects BOTH news articles AND price data in the same run
-  - Updates all MongoDB collections with fresh data
-  - Creates detailed logs of what was collected
-- Run sentiment analysis 30 minutes after each data collection
-- Store results in MongoDB and save analysis summary files to the `data/` directory
+4. Set up crontab manually:
+   ```
+   crontab -e
+   ```
+   
+   Add the following entries:
+   ```
+   # Crypto Sentiment Analysis - Data Collection (Every 3 hours)
+   0 */3 * * * cd /path/to/crypto_sentiment && /path/to/python /path/to/crypto_sentiment/run_collector.py
+   
+   # Crypto Sentiment Analysis - Sentiment Analysis (30 min after data collection)
+   30 */3 * * * cd /path/to/crypto_sentiment && /path/to/python /path/to/crypto_sentiment/run_sentiment_analysis.py
+   ```
 
-## Data Collection Cycle
+## Running Manually
 
-Each 3-hour collection cycle:
-1. Collects and stores Bitcoin news articles
-2. Collects and stores global economy news articles
-3. Collects and stores Bitcoin price data (with precise timestamps)
-4. Collects and stores S&P 500 price data (with precise timestamps)
+You can run the scripts manually:
 
-All types of data are collected and stored in a single execution to ensure consistent data points across all collections.
-
-## Manually Running Scripts
-
-You can also run the scripts manually:
-
-- To collect all data types at once (articles and prices):
+- To collect all data types at once:
   ```
   python run_collector.py
   ```
 
-- To analyze sentiment once:
+- To analyze sentiment:
   ```
   python run_sentiment_analysis.py
   ```
 
-## Configuration
+## Data Flow
 
-The project requires the following API keys:
-- NewsAPI key
-- MongoDB connection string
+1. **Collection Phase**:
+   - Every 3 hours (configurable), `run_collector.py` runs.
+   - News articles and price data are fetched and stored with original timestamps.
+   - A lock file prevents concurrent execution.
 
-Store these in the `.env` file (see `.env.example` for format).
+2. **Analysis Phase**:
+   - 30 minutes after collection, `run_sentiment_analysis.py` runs.
+   - Any new articles without sentiment scores are analyzed using FinBERT.
+   - Results are stored in MongoDB and as JSON files in the `data/` directory.
 
-## Data Collection and Storage
+## Sentiment Analysis
 
-The application collects and stores data with accurate timestamps:
+The system uses FinBERT, which provides scores in the range 0-1:
+- Score < 0.4: Negative sentiment (bearish)
+- Score 0.4-0.6: Neutral sentiment 
+- Score > 0.6: Positive sentiment (bullish)
 
-### News Articles
-- Articles are stored with their original publication datetime (`published_at` field)
-- The collection time is also recorded (`stored_at` field)
-- Duplicate articles are automatically detected and not re-inserted
-- Articles are stored in the following collections:
-  - Bitcoin news → `bitcoin_articles` collection
-  - Global economy news → `global_economy_articles` collection
+The analysis compares crypto sentiment with global economy sentiment to detect divergences.
 
-### Price Data
-- Price data is stored with actual market timestamps (`timestamp` field)
-- The collection time is also recorded (`collection_time` field)
-- Data includes open, high, low, close prices and volume
-- Price data is stored in the following collections:
-  - Bitcoin prices → `bitcoin_price` collection
-  - S&P 500 index → `sp500` collection
-  
-### Sentiment Analysis
-- Results are stored with their calculation timestamp
-- Each result includes scores for both Bitcoin and global economy news
-- Results are stored in the `sentiment_results` collection
-- Summary JSON files are also saved to the `data/` directory
+## Customization
 
-## MongoDB Connection
+### Adding More Cryptocurrencies
 
-The project connects to a MongoDB Atlas free tier cluster. Connection details 
-are stored in the `.env` file and loaded via the config module.
+Edit `config/app_config.json` to add more cryptocurrencies:
 
-## Future Enhancements
+```json
+"crypto": [
+  {
+    "name": "Bitcoin",
+    "symbol": "BTC-USD",
+    "collection": "bitcoin_price",
+    "query": "bitcoin OR btc",
+    "news_collection": "bitcoin_articles"
+  },
+  {
+    "name": "Ethereum",
+    "symbol": "ETH-USD",
+    "collection": "ethereum_price",
+    "query": "ethereum OR eth",
+    "news_collection": "ethereum_articles"
+  }
+]
+```
 
-- Web dashboard for visualizing sentiment trends
-- Real-time sentiment analysis updates
-- Additional financial assets and indicators
-- Predictive analytics based on sentiment data
+### Adding More News Topics
+
+Edit the `news_queries` section in `config/app_config.json`:
+
+```json
+"news_queries": [
+  {
+    "name": "Global Economy",
+    "query": "global economy OR economic outlook OR financial markets",
+    "collection": "global_economy_articles"
+  },
+  {
+    "name": "Central Banks",
+    "query": "central bank OR federal reserve OR monetary policy",
+    "collection": "central_banks_articles"
+  }
+]
+```
+
+### Changing Collection Interval
+
+Edit the `DATA_COLLECTION_INTERVAL_HOURS` in your `.env` file or `collection_interval_hours` in `app_config.json`.
+
+Then update your crontab:
+```
+python setup_crontab.py
+```
+
+## Troubleshooting
+
+### Check Logs
+
+Log files are stored in the `logs/` directory with filenames like:
+- `cron-collector-YYYYMMDD.log` - Data collection logs
+- `cron-sentiment-YYYYMMDD.log` - Sentiment analysis logs
+
+### MongoDB Connection Issues
+
+If MongoDB connection fails:
+1. Check your connection string in `.env`
+2. Ensure network connectivity to your MongoDB server
+3. Verify database user permissions
+
+### NewsAPI Limits
+
+The free tier of NewsAPI has some limitations:
+- Only news from the last month
+- Limited to 100 articles per request
+- Rate limited to 100 requests per day
+
+Consider upgrading to a paid plan for production use.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [FinBERT](https://github.com/ProsusAI/finBERT) - Financial sentiment analysis model
+- [NewsAPI](https://newsapi.org/) - News articles API
+- [yfinance](https://github.com/ranaroussi/yfinance) - Yahoo Finance market data API

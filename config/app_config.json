@@ -1,0 +1,29 @@
+{
+  "assets": {
+    "crypto": [
+      {
+        "name": "Bitcoin",
+        "symbol": "BTC-USD", 
+        "collection": "bitcoin_price",
+        "query": "bitcoin OR btc",
+        "news_collection": "bitcoin_articles"
+      }
+    ],
+    "indices": [
+      {
+        "name": "S&P 500",
+        "symbol": "^GSPC",
+        "collection": "sp500"
+      }
+    ]
+  },
+  "news_queries": [
+    {
+      "name": "Global Economy",
+      "query": "global economy OR economic outlook OR financial markets",
+      "collection": "global_economy_articles"
+    }
+  ],
+  "collection_interval_hours": 3,
+  "sentiment_model": "ProsusAI/finbert"
+}

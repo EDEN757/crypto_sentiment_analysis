@@ -1,17 +1,20 @@
 """Sentiment analyzer module for financial news.
 
 This module provides functions for analyzing sentiment in financial news articles
-using NLP techniques.
+using NLP techniques and the FinBERT model.
 """
 
 import logging
 import nltk
-from nltk.tokenize import word_tokenize, sent_tokenize
+from nltk.tokenize import sent_tokenize
 from nltk.corpus import stopwords
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
-from textblob import TextBlob
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Optional
 import pandas as pd
+import torch
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from pathlib import Path
+import os
+import json
 
 from . import config
 from .database import db_client
@@ -21,8 +24,12 @@ logger = logging.getLogger(__name__)
 class SentimentAnalyzer:
     """Class for analyzing sentiment in financial news articles."""
     
-    def __init__(self):
-        """Initialize the sentiment analyzer with NLP models."""
+    def __init__(self, model_name: str = None):
+        """Initialize the sentiment analyzer with NLP models.
+        
+        Args:
+            model_name: The name of the FinBERT model to use (default from config)
+        """
         # Download required NLTK resources
         try:
             nltk.data.find('tokenizers/punkt')
@@ -36,11 +43,27 @@ class SentimentAnalyzer:
             logger.info("Downloading NLTK stopwords")
             nltk.download('stopwords', quiet=True)
         
-        # Initialize sentiment analyzer from VADER
-        self.vader = SentimentIntensityAnalyzer()
+        # Set up FinBERT model
+        model_name = model_name or config.SENTIMENT_MODEL
+        
+        # Create models directory if it doesn't exist
+        models_dir = Path(config.BASE_DIR) / 'models'
+        os.makedirs(models_dir, exist_ok=True)
+        
+        # Load the FinBERT model and tokenizer
+        logger.info(f"Loading FinBERT model: {model_name}")
+        self.tokenizer = AutoTokenizer.from_pretrained(model_name)
+        self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        
+        # Set up device (GPU if available, otherwise CPU)
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        logger.info(f"Using device: {self.device}")
+        self.model.to(self.device)
+        
+        # Set up stopwords
         self.stop_words = set(stopwords.words('english'))
         
-        logger.info("Sentiment analyzer initialized")
+        logger.info("Sentiment analyzer initialized with FinBERT model")
     
     def _preprocess_text(self, text: str) -> str:
         """Preprocess text for sentiment analysis.
@@ -54,56 +77,86 @@ class SentimentAnalyzer:
         if not text:
             return ""
             
-        # Tokenize and remove stopwords
-        tokens = word_tokenize(text.lower())
-        filtered_tokens = [
-            token for token in tokens 
-            if token.isalpha() and token not in self.stop_words
-        ]
+        # Clean up text (remove excessive whitespace, etc.)
+        text = ' '.join(text.split())
         
-        # Join tokens back into a string
-        return " ".join(filtered_tokens)
+        return text
     
-    def analyze_sentiment_vader(self, text: str) -> Dict[str, float]:
-        """Analyze sentiment using VADER.
+    def analyze_sentiment_finbert(self, text: str) -> Dict[str, float]:
+        """Analyze sentiment using FinBERT.
         
         Args:
             text: The text to analyze
             
         Returns:
-            Dictionary with sentiment scores
+            Dictionary with sentiment scores in range 0-1
         """
-        preprocessed_text = self._preprocess_text(text)
-        if not preprocessed_text:
+        if not text or len(text) < 10:  # Require at least 10 chars
             return {
-                'compound': 0.0,
-                'neg': 0.0,
-                'neu': 0.0,
-                'pos': 0.0
+                'score': 0.5,  # Neutral
+                'label': 'neutral'
             }
-            
-        return self.vader.polarity_scores(preprocessed_text)
-    
-    def analyze_sentiment_textblob(self, text: str) -> Dict[str, float]:
-        """Analyze sentiment using TextBlob.
         
-        Args:
-            text: The text to analyze
-            
-        Returns:
-            Dictionary with sentiment scores
-        """
+        # Preprocess text
         preprocessed_text = self._preprocess_text(text)
         if not preprocessed_text:
             return {
-                'polarity': 0.0,
-                'subjectivity': 0.0
+                'score': 0.5,  # Neutral 
+                'label': 'neutral'
             }
+        
+        # Split into sentences and analyze each (FinBERT has token limits)
+        sentences = sent_tokenize(preprocessed_text)
+        scores = []
+        
+        # Process each sentence
+        for sentence in sentences:
+            # Skip very short sentences
+            if len(sentence) < 5:
+                continue
             
-        blob = TextBlob(preprocessed_text)
+            try:
+                # Tokenize the sentence
+                inputs = self.tokenizer(sentence, return_tensors="pt", truncation=True, 
+                                       max_length=512, padding=True)
+                inputs = {key: val.to(self.device) for key, val in inputs.items()}
+                
+                # Get predictions
+                with torch.no_grad():
+                    outputs = self.model(**inputs)
+                    logits = outputs.logits
+                    probs = torch.softmax(logits, dim=1).squeeze().cpu().numpy()
+                    
+                # Map FinBERT output (negative, neutral, positive) to score
+                # FinBERT returns [negative, neutral, positive] probabilities
+                # We map this to a 0-1 score (0=negative, 0.5=neutral, 1=positive)
+                score = probs[2] * 1.0 + probs[1] * 0.5 + probs[0] * 0.0
+                scores.append(score)
+                
+            except Exception as e:
+                logger.warning(f"Error processing sentence: {str(e)}")
+                continue
+        
+        # Calculate average score
+        if not scores:
+            return {
+                'score': 0.5,  # Neutral
+                'label': 'neutral'
+            }
+        
+        avg_score = sum(scores) / len(scores)
+        
+        # Determine label based on score
+        if avg_score < 0.4:
+            label = 'negative'
+        elif avg_score > 0.6:
+            label = 'positive'
+        else:
+            label = 'neutral'
+        
         return {
-            'polarity': blob.sentiment.polarity,
-            'subjectivity': blob.sentiment.subjectivity
+            'score': avg_score,
+            'label': label
         }
     
     def analyze_article(self, article: Dict[str, Any]) -> Dict[str, Any]:
@@ -126,16 +179,19 @@ class SentimentAnalyzer:
         full_text = f"{title} {description} {content}"
         
         # Analyze sentiment
-        vader_scores = self.analyze_sentiment_vader(full_text)
-        textblob_scores = self.analyze_sentiment_textblob(full_text)
+        sentiment = self.analyze_sentiment_finbert(full_text)
         
         # Add sentiment scores to result
-        result['sentiment'] = {
-            'vader': vader_scores,
-            'textblob': textblob_scores,
-            # Combined sentiment score (normalized from -1 to 1)
-            'combined_score': (vader_scores['compound'] + textblob_scores['polarity']) / 2
-        }
+        result['sentiment'] = sentiment
+        
+        # If the article has an _id field, use it to update the article in the database
+        if '_id' in article:
+            try:
+                collection_name = article.get('_collection', config.BITCOIN_ARTICLES_COLLECTION)
+                db_client.update_article_sentiment(collection_name, article['_id'], sentiment)
+                logger.debug(f"Updated sentiment for article {article['_id']} in {collection_name}")
+            except Exception as e:
+                logger.warning(f"Failed to update article sentiment in database: {str(e)}")
         
         return result
     
@@ -151,8 +207,12 @@ class SentimentAnalyzer:
         """
         logger.info(f"Analyzing sentiment for articles in {collection_name}")
         
-        # Get the latest articles
-        articles = db_client.get_latest_articles(collection_name, limit)
+        # Get the latest articles without sentiment analysis
+        articles = db_client.get_articles_without_sentiment(collection_name, limit)
+        
+        # Add collection info to each article
+        for article in articles:
+            article['_collection'] = collection_name
         
         # Analyze sentiment for each article
         results = []
@@ -164,96 +224,139 @@ class SentimentAnalyzer:
         
         return results
     
-    def get_average_sentiment(self, collection_name: str, limit: int = 100) -> Dict[str, float]:
+    def get_average_sentiment(self, collection_name: str, days: int = 1) -> Dict[str, float]:
         """Get average sentiment scores for articles in a collection.
         
         Args:
             collection_name: The name of the collection to analyze
-            limit: Maximum number of articles to analyze
+            days: Number of days to look back for articles
             
         Returns:
             Dictionary with average sentiment scores
         """
-        articles = self.analyze_articles_from_collection(collection_name, limit)
+        # Get articles with sentiment from the past N days
+        articles = db_client.get_articles_with_sentiment(collection_name, days)
         
         if not articles:
             return {
-                'vader_compound': 0.0,
-                'textblob_polarity': 0.0,
-                'combined_score': 0.0
+                'score': 0.5,  # Neutral
+                'article_count': 0
             }
         
-        # Calculate average scores
-        vader_compound_sum = sum(a['sentiment']['vader']['compound'] for a in articles)
-        textblob_polarity_sum = sum(a['sentiment']['textblob']['polarity'] for a in articles)
-        combined_score_sum = sum(a['sentiment']['combined_score'] for a in articles)
+        # Calculate average score
+        score_sum = sum(a['sentiment']['score'] for a in articles if 'sentiment' in a)
+        count = len([a for a in articles if 'sentiment' in a])
         
-        count = len(articles)
+        if count == 0:
+            return {
+                'score': 0.5,  # Neutral
+                'article_count': 0
+            }
+        
+        avg_score = score_sum / count
+        
+        # Determine label based on score
+        if avg_score < 0.4:
+            label = 'negative'
+        elif avg_score > 0.6:
+            label = 'positive'
+        else:
+            label = 'neutral'
         
         return {
-            'vader_compound': vader_compound_sum / count,
-            'textblob_polarity': textblob_polarity_sum / count,
-            'combined_score': combined_score_sum / count,
+            'score': avg_score,
+            'label': label,
             'article_count': count
         }
     
-    def compare_bitcoin_vs_global_economy_sentiment(self) -> Dict[str, Any]:
-        """Compare sentiment between Bitcoin and global economy news.
+    def compare_crypto_vs_economy_sentiment(self) -> Dict[str, Any]:
+        """Compare sentiment between crypto and global economy news.
         
         Returns:
             Dictionary with comparative sentiment analysis
         """
-        logger.info("Comparing Bitcoin vs global economy sentiment")
+        logger.info("Comparing crypto vs global economy sentiment")
         
-        bitcoin_sentiment = self.get_average_sentiment(
-            config.BITCOIN_ARTICLES_COLLECTION
-        )
+        results = {}
         
-        global_economy_sentiment = self.get_average_sentiment(
-            config.GLOBAL_ECONOMY_ARTICLES_COLLECTION
-        )
+        # Get sentiment for crypto assets
+        for crypto in config.DEFAULT_CONFIG["assets"]["crypto"]:
+            if "news_collection" in crypto:
+                collection_name = crypto["news_collection"]
+                sentiment = self.get_average_sentiment(collection_name)
+                results[crypto["name"]] = sentiment
         
-        # Calculate sentiment difference (Bitcoin - Global Economy)
-        sentiment_diff = {
-            'vader_compound_diff': bitcoin_sentiment['vader_compound'] - global_economy_sentiment['vader_compound'],
-            'textblob_polarity_diff': bitcoin_sentiment['textblob_polarity'] - global_economy_sentiment['textblob_polarity'],
-            'combined_score_diff': bitcoin_sentiment['combined_score'] - global_economy_sentiment['combined_score']
-        }
+        # Get sentiment for global economy
+        for news_config in config.DEFAULT_CONFIG["news_queries"]:
+            collection_name = news_config["collection"]
+            sentiment = self.get_average_sentiment(collection_name)
+            results[news_config["name"]] = sentiment
         
-        return {
-            'bitcoin': bitcoin_sentiment,
-            'global_economy': global_economy_sentiment,
-            'difference': sentiment_diff,
-            'timestamp': pd.Timestamp.now()
-        }
+        # Add timestamp
+        results["timestamp"] = pd.Timestamp.now()
+        
+        # Store results in database
+        db_client.insert_sentiment_comparison(config.SENTIMENT_RESULTS_COLLECTION, results)
+        
+        return results
+
+def analyze_and_store_all_sentiments():
+    """Analyze sentiment for all collections and store results."""
+    analyzer = SentimentAnalyzer()
+    
+    # First, analyze any unanalyzed articles in each collection
+    for crypto in config.DEFAULT_CONFIG["assets"]["crypto"]:
+        if "news_collection" in crypto:
+            collection_name = crypto["news_collection"]
+            analyzer.analyze_articles_from_collection(collection_name)
+    
+    for news_config in config.DEFAULT_CONFIG["news_queries"]:
+        collection_name = news_config["collection"]
+        analyzer.analyze_articles_from_collection(collection_name)
+    
+    # Then, compare overall sentiment
+    comparison = analyzer.compare_crypto_vs_economy_sentiment()
+    
+    # Return comparison for logging/display
+    return comparison
 
 def analyze_and_print_sentiment():
     """Analyze sentiment and print results."""
-    analyzer = SentimentAnalyzer()
-    comparison = analyzer.compare_bitcoin_vs_global_economy_sentiment()
+    comparison = analyze_and_store_all_sentiments()
     
     print("\n--- Sentiment Analysis Results ---")
-    print(f"Bitcoin Sentiment (from {comparison['bitcoin']['article_count']} articles):")
-    print(f"  VADER Compound: {comparison['bitcoin']['vader_compound']:.4f}")
-    print(f"  TextBlob Polarity: {comparison['bitcoin']['textblob_polarity']:.4f}")
-    print(f"  Combined Score: {comparison['bitcoin']['combined_score']:.4f}")
     
-    print(f"\nGlobal Economy Sentiment (from {comparison['global_economy']['article_count']} articles):")
-    print(f"  VADER Compound: {comparison['global_economy']['vader_compound']:.4f}")
-    print(f"  TextBlob Polarity: {comparison['global_economy']['textblob_polarity']:.4f}")
-    print(f"  Combined Score: {comparison['global_economy']['combined_score']:.4f}")
+    # Print results for each item in the comparison
+    for name, sentiment in comparison.items():
+        if name == "timestamp":
+            continue
+            
+        if isinstance(sentiment, dict) and "score" in sentiment:
+            print(f"{name} Sentiment (from {sentiment.get('article_count', 0)} articles):")
+            print(f"  Score: {sentiment['score']:.4f}")
+            print(f"  Classification: {sentiment.get('label', 'unknown')}")
+            print()
     
-    print("\nDifference (Bitcoin - Global Economy):")
-    print(f"  VADER Compound Diff: {comparison['difference']['vader_compound_diff']:.4f}")
-    print(f"  TextBlob Polarity Diff: {comparison['difference']['textblob_polarity_diff']:.4f}")
-    print(f"  Combined Score Diff: {comparison['difference']['combined_score_diff']:.4f}")
+    # Identify any crypto assets for specific comparison
+    crypto_assets = [crypto["name"] for crypto in config.DEFAULT_CONFIG["assets"]["crypto"] 
+                    if "news_collection" in crypto]
     
-    if comparison['difference']['combined_score_diff'] > 0:
-        print("\nResult: Bitcoin sentiment is more positive than global economy sentiment")
-    elif comparison['difference']['combined_score_diff'] < 0:
-        print("\nResult: Global economy sentiment is more positive than Bitcoin sentiment")
-    else:
-        print("\nResult: Bitcoin and global economy sentiment are approximately equal")
+    # Compare first crypto asset with global economy if both exist
+    if crypto_assets and "Global Economy" in comparison:
+        crypto = crypto_assets[0]  # Take first crypto asset
+        if crypto in comparison:
+            crypto_score = comparison[crypto]["score"]
+            economy_score = comparison["Global Economy"]["score"]
+            diff = crypto_score - economy_score
+            
+            print(f"\nDifference ({crypto} - Global Economy): {diff:.4f}")
+            
+            if diff > 0.1:
+                print(f"Result: {crypto} sentiment is more positive than global economy sentiment")
+            elif diff < -0.1:
+                print(f"Result: Global economy sentiment is more positive than {crypto} sentiment")
+            else:
+                print(f"Result: {crypto} and global economy sentiment are approximately equal")
 
 if __name__ == "__main__":
     analyze_and_print_sentiment()

@@ -9,6 +9,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from dotenv import load_dotenv
 from pathlib import Path
+import json
 
 # Load environment variables from .env file
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -31,11 +32,58 @@ BITCOIN_ARTICLES_COLLECTION = 'bitcoin_articles'
 GLOBAL_ECONOMY_ARTICLES_COLLECTION = 'global_economy_articles'
 BITCOIN_PRICE_COLLECTION = 'bitcoin_price'
 SP500_COLLECTION = 'sp500'
+SENTIMENT_RESULTS_COLLECTION = 'sentiment_results'
 
 # Data collection settings
-BITCOIN_QUERY = os.getenv('BITCOIN_QUERY', 'bitcoin OR btc')
-GLOBAL_ECONOMY_QUERY = os.getenv('GLOBAL_ECONOMY_QUERY', 'global economy OR economic outlook OR financial markets')
-DATA_COLLECTION_INTERVAL_HOURS = int(os.getenv('DATA_COLLECTION_INTERVAL_HOURS', 6))
+DEFAULT_CONFIG = {
+    "assets": {
+        "crypto": [
+            {
+                "name": "Bitcoin",
+                "symbol": "BTC-USD", 
+                "collection": "bitcoin_price",
+                "query": "bitcoin OR btc",
+                "news_collection": "bitcoin_articles"
+            }
+        ],
+        "indices": [
+            {
+                "name": "S&P 500",
+                "symbol": "^GSPC",
+                "collection": "sp500"
+            }
+        ]
+    },
+    "news_queries": [
+        {
+            "name": "Global Economy",
+            "query": "global economy OR economic outlook OR financial markets",
+            "collection": "global_economy_articles"
+        }
+    ],
+    "collection_interval_hours": int(os.getenv('DATA_COLLECTION_INTERVAL_HOURS', 3)),
+    "sentiment_model": "ProsusAI/finbert"
+}
+
+# Try to load config from file if it exists
+CONFIG_FILE = BASE_DIR / 'config' / 'app_config.json'
+if CONFIG_FILE.exists():
+    try:
+        with open(CONFIG_FILE, 'r') as f:
+            user_config = json.load(f)
+            # Merge user config with defaults
+            DEFAULT_CONFIG.update(user_config)
+    except Exception as e:
+        print(f"Error loading config file: {e}. Using default configuration.")
+
+# Extract commonly used values for backward compatibility
+BITCOIN_QUERY = next((asset["query"] for asset in DEFAULT_CONFIG["assets"]["crypto"] 
+                      if asset["name"] == "Bitcoin"), "bitcoin OR btc")
+GLOBAL_ECONOMY_QUERY = next((news["query"] for news in DEFAULT_CONFIG["news_queries"] 
+                            if news["name"] == "Global Economy"), 
+                           "global economy OR economic outlook OR financial markets")
+DATA_COLLECTION_INTERVAL_HOURS = DEFAULT_CONFIG["collection_interval_hours"]
+SENTIMENT_MODEL = DEFAULT_CONFIG["sentiment_model"]
 
 # Logging configuration
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
