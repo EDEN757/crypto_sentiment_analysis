@@ -1,0 +1,24 @@
+# API and Data Collection
+requests==2.31.0
+newsapi-python==0.2.7
+yfinance==0.2.35
+pymongo==4.6.1
+python-dotenv==1.0.0
+
+# Data Processing and Analysis
+pandas==2.1.3
+numpy==1.26.2
+
+# NLP and Sentiment Analysis
+nltk==3.8.1
+vaderSentiment==3.3.2
+textblob==0.17.1
+
+# Logging and Utilities
+python-dateutil==2.8.2
+pytz==2023.3
+colorlog==6.7.0
+
+# Testing
+pytest==7.4.3
+pytest-cov==4.1.0
