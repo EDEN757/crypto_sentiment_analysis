@@ -6,14 +6,16 @@
         "symbol": "BTC-USD", 
         "collection": "bitcoin_price",
         "query": "bitcoin OR btc",
-        "news_collection": "bitcoin_articles"
+        "news_collection": "bitcoin_articles",
+        "delay_hours": 24
       }
     ],
     "indices": [
       {
         "name": "S&P 500",
         "symbol": "^GSPC",
-        "collection": "sp500"
+        "collection": "sp500",
+        "delay_hours": 24
       }
     ]
   },
@@ -21,9 +23,12 @@
     {
       "name": "Global Economy",
       "query": "global economy OR economic outlook OR financial markets",
-      "collection": "global_economy_articles"
+      "collection": "global_economy_articles",
+      "delay_hours": 24
     }
   ],
   "collection_interval_hours": 3,
-  "sentiment_model": "ProsusAI/finbert"
+  "sentiment_model": "ProsusAI/finbert",
+  "articles_per_query": 2,
+  "default_delay_hours": 24
 }

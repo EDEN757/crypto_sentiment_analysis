@@ -84,6 +84,8 @@ GLOBAL_ECONOMY_QUERY = next((news["query"] for news in DEFAULT_CONFIG["news_quer
                            "global economy OR economic outlook OR financial markets")
 DATA_COLLECTION_INTERVAL_HOURS = DEFAULT_CONFIG["collection_interval_hours"]
 SENTIMENT_MODEL = DEFAULT_CONFIG["sentiment_model"]
+ARTICLES_PER_QUERY = DEFAULT_CONFIG.get("articles_per_query", 2)  # Default to 2 if not specified
+DEFAULT_DELAY_HOURS = DEFAULT_CONFIG.get("default_delay_hours", 24)  # Default delay for data collection
 
 # Logging configuration
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')

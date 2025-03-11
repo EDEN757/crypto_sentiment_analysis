@@ -25,80 +25,142 @@ class DataCollector:
         self.news_api = NewsApiClient(api_key=config.NEWS_API_KEY)
         logger.info("Data collector initialized")
     
-    def collect_news_for_query(self, query: str, collection_name: str) -> List[Dict[str, Any]]:
+    def collect_news_for_query(self, query: str, collection_name: str, delay_hours: Optional[int] = None) -> List[Dict[str, Any]]:
         """Collect news articles for a specific query from NewsAPI.
         
         Args:
             query: The search query string
             collection_name: The name of the collection for storing articles
+            delay_hours: Optional delay in hours for data collection (overrides config)
             
         Returns:
             List of news articles
         """
         try:
-            logger.info(f"Collecting news articles for query: '{query}'")
+            # Use provided delay or default from config
+            if delay_hours is None:
+                delay_hours = config.DEFAULT_DELAY_HOURS
+                
+            logger.info(f"Collecting news articles for query: '{query}' with {delay_hours}h delay")
             
-            # Get news from the last 24 hours (NewsAPI free tier limitation)
+            # Calculate date range based on delay
+            end_date = datetime.utcnow() - timedelta(hours=delay_hours)
+            start_date = end_date - timedelta(days=1)  # Get 24h window with specified delay
+            
+            # Format dates for API call
+            from_date = start_date.date().isoformat()
+            to_date = end_date.date().isoformat()
+            
+            logger.debug(f"Date range: {from_date} to {to_date}")
+            
+            # Get news from the specified time window
             response = self.news_api.get_everything(
                 q=query,
                 language='en',
                 sort_by='publishedAt',
                 page_size=100,  # Maximum allowed by NewsAPI
-                from_param=(datetime.utcnow() - timedelta(days=1)).date().isoformat()
+                from_param=from_date,
+                to=to_date
             )
             
             articles = response.get('articles', [])
-            logger.info(f"Collected {len(articles)} articles for query: '{query}'")
+            # Sort articles by published date (newest first)
+            articles.sort(key=lambda x: x.get('publishedAt', ''), reverse=True)
+            
+            # Limit the number of articles based on configuration
+            articles_to_store = articles[:config.ARTICLES_PER_QUERY]
+            
+            logger.info(f"Collected {len(articles)} articles for query: '{query}' from {delay_hours}h ago, "
+                       f"storing {len(articles_to_store)} most recent")
             
             # Store articles in the database
-            inserted_count = db_client.insert_articles(collection_name, articles)
+            inserted_count = db_client.insert_articles(collection_name, articles_to_store)
             logger.info(f"Stored {inserted_count} new articles in {collection_name}")
             
-            return articles
+            return articles_to_store
             
         except Exception as e:
             logger.error(f"Failed to collect news for query '{query}': {str(e)}")
             return []
     
-    def collect_price_data(self, symbol: str, collection_name: str) -> Optional[Dict[str, Any]]:
+    def collect_price_data(self, symbol: str, collection_name: str, delay_hours: Optional[int] = None) -> Optional[Dict[str, Any]]:
         """Collect price data for a financial asset from Yahoo Finance.
         
         Args:
             symbol: The Yahoo Finance symbol
             collection_name: The name of the collection for storing price data
+            delay_hours: Optional delay in hours for data collection (overrides config)
             
         Returns:
             Price data or None if collection fails
         """
         try:
-            logger.info(f"Collecting price data for {symbol}")
+            # Use provided delay or default from config
+            if delay_hours is None:
+                delay_hours = config.DEFAULT_DELAY_HOURS
+                
+            logger.info(f"Collecting price data for {symbol} with {delay_hours}h delay")
+            
+            # Calculate the date for data collection
+            target_date = datetime.utcnow() - timedelta(hours=delay_hours)
+            
+            # Determine period needed to capture the delayed data
+            # For delays < 24h, we can use 1d period; for longer delays, adjust accordingly
+            if delay_hours <= 24:
+                period = "1d"
+                interval = "1h"
+            elif delay_hours <= 168:  # One week
+                period = "7d"
+                interval = "1h"
+            else:
+                period = f"{delay_hours // 24 + 2}d"  # Add buffer for safer retrieval
+                interval = "1d"
             
             # Get price data
             ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d", interval="1h")
+            hist = ticker.history(period=period, interval=interval)
             
             if hist.empty:
                 logger.warning(f"No price data available for {symbol}")
                 return None
             
-            # Get the latest price data
-            latest = hist.iloc[-1]
-            # Get the datetime index for the latest price
-            latest_datetime = hist.index[-1].to_pydatetime()
+            # Find the price data closest to our target time
+            if len(hist) > 1:
+                # Convert index to datetime objects for comparison
+                timestamps = [idx.to_pydatetime() for idx in hist.index]
+                
+                # Find closest timestamp to target_date
+                closest_idx = min(range(len(timestamps)), 
+                                 key=lambda i: abs(timestamps[i] - target_date))
+                
+                # Get data from the closest timestamp
+                closest_data = hist.iloc[closest_idx]
+                closest_datetime = timestamps[closest_idx]
+                
+                # Report how close we got to the target time
+                time_diff = abs((closest_datetime - target_date).total_seconds() / 3600)
+                logger.info(f"Found price data {time_diff:.1f}h from target time for {symbol}")
+            else:
+                # If we only have one data point, use it
+                closest_data = hist.iloc[0]
+                closest_datetime = hist.index[0].to_pydatetime()
+                logger.warning(f"Only one price data point available for {symbol} at {closest_datetime}")
             
             price_data = {
                 "symbol": symbol,
-                "timestamp": latest_datetime,  # Use the actual price timestamp
+                "timestamp": closest_datetime,  # Use the actual price timestamp
                 "collection_time": datetime.utcnow(),  # When we collected it
-                "price": latest["Close"],
-                "open": latest["Open"],
-                "high": latest["High"],
-                "low": latest["Low"],
-                "volume": latest["Volume"],
-                "raw_data": latest.to_dict()
+                "target_time": target_date,  # When we were targeting
+                "price": closest_data["Close"],
+                "open": closest_data["Open"],
+                "high": closest_data["High"],
+                "low": closest_data["Low"],
+                "volume": closest_data["Volume"],
+                "raw_data": closest_data.to_dict(),
+                "delay_hours": delay_hours  # Store the delay used
             }
             
-            logger.info(f"Collected {symbol} price: ${price_data['price']:.2f} from {latest_datetime}")
+            logger.info(f"Collected {symbol} price: ${price_data['price']:.2f} from {closest_datetime}")
             
             # Store price data in the database
             success = db_client.insert_price_data(collection_name, price_data)
@@ -135,7 +197,11 @@ class DataCollector:
                 logger.info(f"--- COLLECTING {news_config['name']} NEWS ---")
                 query = news_config["query"]
                 collection = news_config["collection"]
-                articles = self.collect_news_for_query(query, collection)
+                
+                # Use query-specific delay if specified, otherwise use default
+                delay_hours = news_config.get("delay_hours", config.DEFAULT_DELAY_HOURS)
+                
+                articles = self.collect_news_for_query(query, collection, delay_hours)
                 results["news_articles"][news_config["name"]] = len(articles)
             except Exception as e:
                 logger.error(f"{news_config['name']} news collection failed: {str(e)}", exc_info=True)
@@ -144,19 +210,22 @@ class DataCollector:
         # 2. Collect and store news and price data for crypto assets
         for crypto in config.DEFAULT_CONFIG["assets"]["crypto"]:
             try:
+                # Get asset-specific delay
+                asset_delay = crypto.get("delay_hours", config.DEFAULT_DELAY_HOURS)
+                
                 # Collect news
                 if "query" in crypto and "news_collection" in crypto:
                     logger.info(f"--- COLLECTING {crypto['name']} NEWS ---")
                     query = crypto["query"]
                     collection = crypto["news_collection"]
-                    articles = self.collect_news_for_query(query, collection)
+                    articles = self.collect_news_for_query(query, collection, asset_delay)
                     results["news_articles"][crypto["name"]] = len(articles)
                 
                 # Collect price data
                 logger.info(f"--- COLLECTING {crypto['name']} PRICE ---")
                 symbol = crypto["symbol"]
                 collection = crypto["collection"]
-                price_data = self.collect_price_data(symbol, collection)
+                price_data = self.collect_price_data(symbol, collection, asset_delay)
                 results["price_data"][crypto["name"]] = price_data is not None
             except Exception as e:
                 logger.error(f"{crypto['name']} data collection failed: {str(e)}", exc_info=True)
@@ -170,7 +239,11 @@ class DataCollector:
                 logger.info(f"--- COLLECTING {index['name']} PRICE ---")
                 symbol = index["symbol"]
                 collection = index["collection"]
-                price_data = self.collect_price_data(symbol, collection)
+                
+                # Get index-specific delay
+                index_delay = index.get("delay_hours", config.DEFAULT_DELAY_HOURS)
+                
+                price_data = self.collect_price_data(symbol, collection, index_delay)
                 results["price_data"][index["name"]] = price_data is not None
             except Exception as e:
                 logger.error(f"{index['name']} price collection failed: {str(e)}", exc_info=True)

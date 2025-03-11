@@ -112,14 +112,16 @@ If you prefer to set things up manually:
            "symbol": "BTC-USD",
            "collection": "bitcoin_price",
            "query": "bitcoin OR btc",
-           "news_collection": "bitcoin_articles"
+           "news_collection": "bitcoin_articles",
+           "delay_hours": 24
          }
        ],
        "indices": [
          {
            "name": "S&P 500",
            "symbol": "^GSPC",
-           "collection": "sp500"
+           "collection": "sp500",
+           "delay_hours": 24
          }
        ]
      },
@@ -127,11 +129,14 @@ If you prefer to set things up manually:
        {
          "name": "Global Economy",
          "query": "global economy OR economic outlook OR financial markets",
-         "collection": "global_economy_articles"
+         "collection": "global_economy_articles",
+         "delay_hours": 24
        }
      ],
      "collection_interval_hours": 3,
-     "sentiment_model": "ProsusAI/finbert"
+     "sentiment_model": "ProsusAI/finbert",
+     "articles_per_query": 2,
+     "default_delay_hours": 24
    }
    ```
 
@@ -172,7 +177,12 @@ You can run the scripts manually:
 
 1. **Collection Phase**:
    - Every 3 hours (configurable), `run_collector.py` runs.
-   - News articles and price data are fetched and stored with original timestamps.
+   - For each query, a configurable number of articles (default: 2) are fetched and stored.
+   - Each data source (news query, cryptocurrency, index) can have its own custom delay configuration:
+     - News articles can be collected with e.g. 24, 48, or 72 hour delays to accommodate API limitations
+     - Price data can also use delays to ensure synchronization with news data
+   - Articles are always stored with their original publication timestamps to maintain data integrity.
+   - The system collects the most recent articles within the specified delay window.
    - A lock file prevents concurrent execution.
 
 2. **Analysis Phase**:
@@ -233,11 +243,48 @@ Edit the `news_queries` section in `config/app_config.json`:
 ]
 ```
 
-### Changing Collection Interval
+### Changing Collection Parameters
 
-Edit the `DATA_COLLECTION_INTERVAL_HOURS` in your `.env` file or `collection_interval_hours` in `app_config.json`.
+You can customize several collection parameters in `app_config.json`:
 
-Then update your crontab:
+1. **Collection Interval**: Change how often data is collected
+   ```json
+   "collection_interval_hours": 3
+   ```
+
+2. **Articles Per Query**: Control how many articles are stored per category each collection cycle
+   ```json
+   "articles_per_query": 2
+   ```
+
+3. **Default Delay Hours**: Set the default historical delay for all data sources
+   ```json
+   "default_delay_hours": 24
+   ```
+
+4. **Custom Delay Per Source**: Configure custom delays for specific data sources
+   ```json
+   // For news queries
+   "news_queries": [
+     {
+       "name": "Global Economy",
+       "query": "...",
+       "collection": "global_economy_articles",
+       "delay_hours": 48  // Custom 48-hour delay for this query
+     }
+   ]
+   
+   // For cryptocurrencies
+   "crypto": [
+     {
+       "name": "Bitcoin",
+       "symbol": "BTC-USD",
+       "delay_hours": 24  // 24-hour delay for Bitcoin data
+     }
+   ]
+   ```
+
+After making changes, update your crontab:
 ```
 python setup_crontab.py
 ```
@@ -263,8 +310,14 @@ The free tier of NewsAPI has some limitations:
 - Only news from the last month
 - Limited to 100 articles per request
 - Rate limited to 100 requests per day
+- 24-hour delay on articles (historical articles only)
 
-Consider upgrading to a paid plan for production use.
+To work with these limitations:
+1. Configure the delay_hours parameter for each data source to match your NewsAPI tier constraints.
+2. For free tier, set delay_hours to at least 24 to work with the historical data limitation.
+3. Adjust articles_per_query to limit database growth while maintaining adequate data volume.
+
+Consider upgrading to a paid plan for production use or real-time data needs.
 
 ## License
 

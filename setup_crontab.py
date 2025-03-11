@@ -195,14 +195,16 @@ def setup_config_directory():
                     "symbol": "BTC-USD", 
                     "collection": "bitcoin_price",
                     "query": "bitcoin OR btc",
-                    "news_collection": "bitcoin_articles"
+                    "news_collection": "bitcoin_articles",
+                    "delay_hours": 24
                 }
             ],
             "indices": [
                 {
                     "name": "S&P 500",
                     "symbol": "^GSPC",
-                    "collection": "sp500"
+                    "collection": "sp500",
+                    "delay_hours": 24
                 }
             ]
         },
@@ -210,11 +212,14 @@ def setup_config_directory():
             {
                 "name": "Global Economy",
                 "query": "global economy OR economic outlook OR financial markets",
-                "collection": "global_economy_articles"
+                "collection": "global_economy_articles",
+                "delay_hours": 24
             }
         ],
         "collection_interval_hours": 3,
-        "sentiment_model": "ProsusAI/finbert"
+        "sentiment_model": "ProsusAI/finbert",
+        "articles_per_query": 2,
+        "default_delay_hours": 24
     }
     
     # Ask user if they want to customize config
@@ -228,6 +233,9 @@ def setup_config_directory():
         
         # Customize the default Bitcoin asset
         default_config["assets"]["crypto"][0]["query"] = input(f"Bitcoin search query [bitcoin OR btc]: ").strip() or "bitcoin OR btc"
+        bitcoin_delay = input(f"Bitcoin data delay in hours [24]: ").strip()
+        if bitcoin_delay and bitcoin_delay.isdigit():
+            default_config["assets"]["crypto"][0]["delay_hours"] = int(bitcoin_delay)
         
         # Ask if user wants to add more crypto assets
         print("\nDo you want to add another crypto asset? (y/n)")
@@ -237,6 +245,7 @@ def setup_config_directory():
             name = input("Crypto name: ").strip()
             symbol = input(f"{name} symbol (Yahoo Finance): ").strip()
             query = input(f"{name} search query: ").strip()
+            asset_delay = input(f"{name} data delay in hours [24]: ").strip() or "24"
             collection = f"{name.lower().replace(' ', '_')}_price"
             news_collection = f"{name.lower().replace(' ', '_')}_articles"
             
@@ -245,7 +254,8 @@ def setup_config_directory():
                 "symbol": symbol,
                 "collection": collection,
                 "query": query,
-                "news_collection": news_collection
+                "news_collection": news_collection,
+                "delay_hours": int(asset_delay) if asset_delay.isdigit() else 24
             })
             
             print("\nDo you want to add another crypto asset? (y/n)")
@@ -258,12 +268,14 @@ def setup_config_directory():
         while add_index:
             name = input("Index name: ").strip()
             symbol = input(f"{name} symbol (Yahoo Finance): ").strip()
+            index_delay = input(f"{name} data delay in hours [24]: ").strip() or "24"
             collection = f"{name.lower().replace(' ', '_')}_price"
             
             default_config["assets"]["indices"].append({
                 "name": name,
                 "symbol": symbol,
-                "collection": collection
+                "collection": collection,
+                "delay_hours": int(index_delay) if index_delay.isdigit() else 24
             })
             
             print("\nDo you want to add another index? (y/n)")
@@ -276,12 +288,14 @@ def setup_config_directory():
         while add_query:
             name = input("Query name: ").strip()
             query = input(f"{name} search query: ").strip()
+            query_delay = input(f"{name} news delay in hours [24]: ").strip() or "24"
             collection = f"{name.lower().replace(' ', '_')}_articles"
             
             default_config["news_queries"].append({
                 "name": name,
                 "query": query,
-                "collection": collection
+                "collection": collection,
+                "delay_hours": int(query_delay) if query_delay.isdigit() else 24
             })
             
             print("\nDo you want to add another news query? (y/n)")
@@ -291,6 +305,16 @@ def setup_config_directory():
         interval = input("\nData collection interval in hours [3]: ").strip()
         if interval and interval.isdigit():
             default_config["collection_interval_hours"] = int(interval)
+            
+        # Customize articles per query
+        articles_count = input("\nNumber of articles to collect per query [2]: ").strip()
+        if articles_count and articles_count.isdigit():
+            default_config["articles_per_query"] = int(articles_count)
+            
+        # Customize default delay
+        default_delay = input("\nDefault data delay in hours for new sources [24]: ").strip()
+        if default_delay and default_delay.isdigit():
+            default_config["default_delay_hours"] = int(default_delay)
     
     # Write config to file
     with open(config_file, "w") as f:
