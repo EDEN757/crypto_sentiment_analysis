@@ -46,10 +46,6 @@ class SentimentAnalyzer:
         # Set up FinBERT model
         model_name = model_name or config.SENTIMENT_MODEL
         
-        # Create models directory if it doesn't exist
-        models_dir = Path(config.BASE_DIR) / 'models'
-        os.makedirs(models_dir, exist_ok=True)
-        
         # Load the FinBERT model and tokenizer
         logger.info(f"Loading FinBERT model: {model_name}")
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
