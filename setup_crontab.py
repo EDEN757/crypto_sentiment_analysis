@@ -228,35 +228,60 @@ def setup_config_directory():
     response = input().strip().lower()
     
     if response == 'y':
+        # Define function to collect asset details with consistent UI
+        def get_asset_details(asset_type, default_values=None):
+            """Collect details for an asset with consistent UI.
+            
+            Args:
+                asset_type: Type of asset ('crypto', 'index', or 'news')
+                default_values: Dictionary with default values
+                
+            Returns:
+                Dictionary with asset details
+            """
+            defaults = default_values or {}
+            details = {}
+            
+            # Common fields for all asset types
+            details["name"] = defaults.get("name") or input(f"{asset_type.title()} name: ").strip()
+            
+            # Asset-specific fields
+            if asset_type == 'crypto':
+                details["symbol"] = defaults.get("symbol") or input(f"{details['name']} symbol (Yahoo Finance, e.g. BTC-USD): ").strip()
+                details["collection"] = defaults.get("collection") or f"{details['name'].lower().replace(' ', '_')}_price"
+                details["query"] = defaults.get("query") or input(f"{details['name']} search query: ").strip()
+                details["news_collection"] = defaults.get("news_collection") or f"{details['name'].lower().replace(' ', '_')}_articles"
+            elif asset_type == 'index':
+                details["symbol"] = defaults.get("symbol") or input(f"{details['name']} symbol (Yahoo Finance, e.g. ^GSPC): ").strip()
+                details["collection"] = defaults.get("collection") or f"{details['name'].lower().replace(' ', '_')}_price"
+            elif asset_type == 'news':
+                details["query"] = defaults.get("query") or input(f"{details['name']} search query: ").strip()
+                details["collection"] = defaults.get("collection") or f"{details['name'].lower().replace(' ', '_')}_articles"
+            
+            # Common delay setting for all types
+            delay_value = defaults.get("delay_hours", config.DEFAULT_DELAY_HOURS) 
+            delay_prompt = f"{details['name']} data delay in hours [{delay_value}]: "
+            delay_input = input(delay_prompt).strip() or str(delay_value)
+            details["delay_hours"] = int(delay_input) if delay_input.isdigit() else delay_value
+            
+            return details
+
         # Customize crypto assets
         print("\nCrypto assets configuration:")
         
-        # Customize the default Bitcoin asset
-        default_config["assets"]["crypto"][0]["query"] = input(f"Bitcoin search query [bitcoin OR btc]: ").strip() or "bitcoin OR btc"
-        bitcoin_delay = input(f"Bitcoin data delay in hours [24]: ").strip()
-        if bitcoin_delay and bitcoin_delay.isdigit():
-            default_config["assets"]["crypto"][0]["delay_hours"] = int(bitcoin_delay)
+        # First, modify the default Bitcoin asset
+        print("\nConfigure the default Bitcoin asset:")
+        bitcoin_defaults = default_config["assets"]["crypto"][0]
+        bitcoin_details = get_asset_details('crypto', bitcoin_defaults)
+        default_config["assets"]["crypto"][0] = bitcoin_details
         
         # Ask if user wants to add more crypto assets
         print("\nDo you want to add another crypto asset? (y/n)")
         add_crypto = input().strip().lower() == 'y'
         
         while add_crypto:
-            name = input("Crypto name: ").strip()
-            symbol = input(f"{name} symbol (Yahoo Finance): ").strip()
-            query = input(f"{name} search query: ").strip()
-            asset_delay = input(f"{name} data delay in hours [24]: ").strip() or "24"
-            collection = f"{name.lower().replace(' ', '_')}_price"
-            news_collection = f"{name.lower().replace(' ', '_')}_articles"
-            
-            default_config["assets"]["crypto"].append({
-                "name": name,
-                "symbol": symbol,
-                "collection": collection,
-                "query": query,
-                "news_collection": news_collection,
-                "delay_hours": int(asset_delay) if asset_delay.isdigit() else 24
-            })
+            crypto_details = get_asset_details('crypto')
+            default_config["assets"]["crypto"].append(crypto_details)
             
             print("\nDo you want to add another crypto asset? (y/n)")
             add_crypto = input().strip().lower() == 'y'
@@ -266,17 +291,8 @@ def setup_config_directory():
         add_index = input().strip().lower() == 'y'
         
         while add_index:
-            name = input("Index name: ").strip()
-            symbol = input(f"{name} symbol (Yahoo Finance): ").strip()
-            index_delay = input(f"{name} data delay in hours [24]: ").strip() or "24"
-            collection = f"{name.lower().replace(' ', '_')}_price"
-            
-            default_config["assets"]["indices"].append({
-                "name": name,
-                "symbol": symbol,
-                "collection": collection,
-                "delay_hours": int(index_delay) if index_delay.isdigit() else 24
-            })
+            index_details = get_asset_details('index')
+            default_config["assets"]["indices"].append(index_details)
             
             print("\nDo you want to add another index? (y/n)")
             add_index = input().strip().lower() == 'y'
@@ -286,17 +302,8 @@ def setup_config_directory():
         add_query = input().strip().lower() == 'y'
         
         while add_query:
-            name = input("Query name: ").strip()
-            query = input(f"{name} search query: ").strip()
-            query_delay = input(f"{name} news delay in hours [24]: ").strip() or "24"
-            collection = f"{name.lower().replace(' ', '_')}_articles"
-            
-            default_config["news_queries"].append({
-                "name": name,
-                "query": query,
-                "collection": collection,
-                "delay_hours": int(query_delay) if query_delay.isdigit() else 24
-            })
+            news_details = get_asset_details('news')
+            default_config["news_queries"].append(news_details)
             
             print("\nDo you want to add another news query? (y/n)")
             add_query = input().strip().lower() == 'y'

@@ -11,7 +11,7 @@ This project automatically collects financial news and price data every 3 hours 
 - Bitcoin price data via Yahoo Finance API
 - S&P 500 index price data via Yahoo Finance API
 
-All collected data is stored in MongoDB with precise timestamps, making it ideal for time series analysis and correlation studies.
+All collected data is stored in MongoDB with precise timestamps, making it ideal for time series analysis and correlation studies. The system is designed to run on a Linux server using crontab for automated data collection and analysis.
 
 ## Project Structure
 
@@ -40,6 +40,7 @@ crypto_sentiment/
 
 ## Key Features
 
+- **Streamlined Setup Process**: Interactive setup script that guides you through configuration of all data sources with custom parameters.
 - **Flexible Configuration**: Define which cryptocurrencies, indices, and news topics to track using a simple JSON configuration.
 - **FinBERT NLP Model**: Uses the state-of-the-art FinBERT sentiment analysis model trained specifically for financial text.
 - **Accurate Data Timestamps**: All data is stored with its original publication or market timestamp.
@@ -79,8 +80,10 @@ crypto_sentiment/
    
    This will guide you through:
    - Setting up API keys and MongoDB connection
-   - Configuring which assets and news to track
+   - Configuring which assets and news to track, including custom delays for each
    - Setting up crontab for automated data collection
+   
+   The improved setup process allows you to configure all parameters for each asset, cryptocurrency, or news category in one step, including custom delay settings.
 
 ### Manual Configuration
 
@@ -192,18 +195,41 @@ You can run the scripts manually:
 
 ## Sentiment Analysis
 
-The system uses FinBERT, which provides scores in the range 0-1:
+The system uses FinBERT, a pre-trained BERT model specialized for financial text, which provides scores in the range 0-1:
 - Score < 0.4: Negative sentiment (bearish)
 - Score 0.4-0.6: Neutral sentiment 
 - Score > 0.6: Positive sentiment (bullish)
 
-The analysis compares crypto sentiment with global economy sentiment to detect divergences.
+The system analyzes both the title and content of each news article, handling texts of any length by splitting them into sentences for processing. It then aggregates these scores to provide an overall sentiment for the article.
+
+The analysis compares crypto sentiment with global economy sentiment to detect divergences, which can be useful for identifying market trends and potential investment opportunities.
 
 ## Customization
 
-### Adding More Cryptocurrencies
+### Adding/Modifying Data Sources
 
-Edit `config/app_config.json` to add more cryptocurrencies:
+The easiest way to add or modify data sources is to run the setup script again:
+
+```
+python setup_crontab.py
+```
+
+When prompted, choose to customize the configuration. The interactive setup will guide you through configuring:
+- Crypto assets (Bitcoin, Ethereum, etc.)
+- Financial indices (S&P 500, etc.)
+- News categories (Global Economy, etc.)
+
+For each data source, you can configure all relevant parameters in one step, including:
+- Name and symbol
+- Search queries for news articles 
+- Collection names for database storage
+- Custom delay settings for each source
+
+### Manual Configuration
+
+If you prefer to edit the configuration file directly, you can modify `config/app_config.json`:
+
+#### Adding Cryptocurrencies
 
 ```json
 "crypto": [
@@ -212,40 +238,42 @@ Edit `config/app_config.json` to add more cryptocurrencies:
     "symbol": "BTC-USD",
     "collection": "bitcoin_price",
     "query": "bitcoin OR btc",
-    "news_collection": "bitcoin_articles"
+    "news_collection": "bitcoin_articles",
+    "delay_hours": 24
   },
   {
     "name": "Ethereum",
     "symbol": "ETH-USD",
     "collection": "ethereum_price",
     "query": "ethereum OR eth",
-    "news_collection": "ethereum_articles"
+    "news_collection": "ethereum_articles",
+    "delay_hours": 24
   }
 ]
 ```
 
-### Adding More News Topics
-
-Edit the `news_queries` section in `config/app_config.json`:
+#### Adding News Topics
 
 ```json
 "news_queries": [
   {
     "name": "Global Economy",
     "query": "global economy OR economic outlook OR financial markets",
-    "collection": "global_economy_articles"
+    "collection": "global_economy_articles",
+    "delay_hours": 24
   },
   {
     "name": "Central Banks",
     "query": "central bank OR federal reserve OR monetary policy",
-    "collection": "central_banks_articles"
+    "collection": "central_banks_articles",
+    "delay_hours": 48
   }
 ]
 ```
 
-### Changing Collection Parameters
+### Global Collection Parameters
 
-You can customize several collection parameters in `app_config.json`:
+You can customize several global collection parameters in `app_config.json`:
 
 1. **Collection Interval**: Change how often data is collected
    ```json
@@ -262,29 +290,7 @@ You can customize several collection parameters in `app_config.json`:
    "default_delay_hours": 24
    ```
 
-4. **Custom Delay Per Source**: Configure custom delays for specific data sources
-   ```json
-   // For news queries
-   "news_queries": [
-     {
-       "name": "Global Economy",
-       "query": "...",
-       "collection": "global_economy_articles",
-       "delay_hours": 48  // Custom 48-hour delay for this query
-     }
-   ]
-   
-   // For cryptocurrencies
-   "crypto": [
-     {
-       "name": "Bitcoin",
-       "symbol": "BTC-USD",
-       "delay_hours": 24  // 24-hour delay for Bitcoin data
-     }
-   ]
-   ```
-
-After making changes, update your crontab:
+After making manual changes to the configuration, update your crontab:
 ```
 python setup_crontab.py
 ```
