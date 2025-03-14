@@ -160,7 +160,11 @@ class MongoDBClient:
                             )
                         
                         # Log if there's a significant difference between published and stored times
-                        time_diff = (article['stored_at'] - article['published_at']).total_seconds() / 3600
+                        # Ensure both datetimes are timezone-naive for comparison
+                        stored_at_naive = article['stored_at'].replace(tzinfo=None) if article['stored_at'].tzinfo else article['stored_at']
+                        published_at_naive = article['published_at'].replace(tzinfo=None) if article['published_at'].tzinfo else article['published_at']
+                        
+                        time_diff = (stored_at_naive - published_at_naive).total_seconds() / 3600
                         if time_diff > 48:  # More than 48 hours
                             logger.warning(
                                 f"Article published {time_diff:.1f} hours before collection: "
@@ -235,11 +239,18 @@ class MongoDBClient:
             if 'collection_time' not in price_data:
                 price_data['collection_time'] = datetime.utcnow()
                 
-            # Make timestamp timezone-aware if it's not
-            if price_data['timestamp'].tzinfo is None:
-                logger.debug("Converting naive timestamp to UTC")
-                # Assume the timestamp is in UTC if not specified
+            # Make sure all timestamps are timezone-naive for consistent handling
+            if price_data['timestamp'].tzinfo is not None:
+                logger.debug("Converting aware timestamp to naive UTC")
+                # Strip timezone info for consistency
                 price_data['timestamp'] = price_data['timestamp'].replace(tzinfo=None)
+                
+            # Ensure all datetime fields are timezone-naive
+            if 'collection_time' in price_data and price_data['collection_time'].tzinfo is not None:
+                price_data['collection_time'] = price_data['collection_time'].replace(tzinfo=None)
+                
+            if 'target_time' in price_data and price_data['target_time'].tzinfo is not None:
+                price_data['target_time'] = price_data['target_time'].replace(tzinfo=None)
             
             # Check if we already have price data for this exact timestamp
             existing = self.db[collection_name].find_one({

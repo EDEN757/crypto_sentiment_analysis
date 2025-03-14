@@ -43,8 +43,8 @@ class DataCollector:
                 
             logger.info(f"Collecting news articles for query: '{query}' with {delay_hours}h delay")
             
-            # Calculate date range based on delay
-            end_date = datetime.utcnow() - timedelta(hours=delay_hours)
+            # Calculate date range based on delay - ensure timezone-naive
+            end_date = datetime.utcnow().replace(tzinfo=None) - timedelta(hours=delay_hours)
             start_date = end_date - timedelta(days=1)  # Get 24h window with specified delay
             
             # Format dates for API call
@@ -101,8 +101,8 @@ class DataCollector:
                 
             logger.info(f"Collecting price data for {symbol} with {delay_hours}h delay")
             
-            # Calculate the date for data collection
-            target_date = datetime.utcnow() - timedelta(hours=delay_hours)
+            # Calculate the date for data collection - make sure it's timezone-naive
+            target_date = datetime.utcnow().replace(tzinfo=None) - timedelta(hours=delay_hours)
             
             # Determine period needed to capture the delayed data
             # For delays < 24h, we can use 1d period; for longer delays, adjust accordingly
@@ -126,8 +126,8 @@ class DataCollector:
             
             # Find the price data closest to our target time
             if len(hist) > 1:
-                # Convert index to datetime objects for comparison
-                timestamps = [idx.to_pydatetime() for idx in hist.index]
+                # Convert index to datetime objects for comparison and ensure they're timezone-naive
+                timestamps = [idx.to_pydatetime().replace(tzinfo=None) for idx in hist.index]
                 
                 # Find closest timestamp to target_date
                 closest_idx = min(range(len(timestamps)), 
@@ -143,13 +143,13 @@ class DataCollector:
             else:
                 # If we only have one data point, use it
                 closest_data = hist.iloc[0]
-                closest_datetime = hist.index[0].to_pydatetime()
+                closest_datetime = hist.index[0].to_pydatetime().replace(tzinfo=None)
                 logger.warning(f"Only one price data point available for {symbol} at {closest_datetime}")
             
             price_data = {
                 "symbol": symbol,
                 "timestamp": closest_datetime,  # Use the actual price timestamp
-                "collection_time": datetime.utcnow(),  # When we collected it
+                "collection_time": datetime.utcnow().replace(tzinfo=None),  # When we collected it
                 "target_time": target_date,  # When we were targeting
                 "price": closest_data["Close"],
                 "open": closest_data["Open"],
@@ -183,7 +183,7 @@ class DataCollector:
             Dictionary with collection results
         """
         interval = config.DATA_COLLECTION_INTERVAL_HOURS
-        logger.info(f"Starting {interval}-hour data collection cycle at {datetime.now()}")
+        logger.info(f"Starting {interval}-hour data collection cycle at {datetime.now().replace(tzinfo=None)}")
         
         # Initialize collection results
         results = {
