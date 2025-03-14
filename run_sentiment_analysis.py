@@ -12,6 +12,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from bson import ObjectId
 
 # Ensure proper path resolution regardless of where the script is called from
 BASE_DIR = Path(__file__).resolve().parent
@@ -68,10 +69,26 @@ def main():
         data_dir = BASE_DIR / 'data'
         os.makedirs(data_dir, exist_ok=True)
         
-        # Convert datetime to string for JSON serialization
+        # Convert datetime and ObjectId to string for JSON serialization
         comparison_copy = comparison.copy()
         if "timestamp" in comparison_copy:
             comparison_copy["timestamp"] = comparison_copy["timestamp"].isoformat()
+        
+        # Handle ObjectId serialization issue
+        def handle_objectid(obj):
+            if isinstance(obj, dict):
+                for key, value in list(obj.items()):
+                    if isinstance(value, ObjectId):
+                        obj[key] = str(value)
+                    elif isinstance(value, dict):
+                        handle_objectid(value)
+                    elif isinstance(value, list):
+                        for item in value:
+                            if isinstance(item, dict):
+                                handle_objectid(item)
+            return obj
+
+        comparison_copy = handle_objectid(comparison_copy)
         
         with open(data_dir / f'sentiment-{analysis_start_time.strftime("%Y%m%d-%H%M%S")}.json', 'w') as f:
             json.dump(comparison_copy, f, indent=2)
