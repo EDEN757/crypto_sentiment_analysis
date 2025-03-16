@@ -209,11 +209,11 @@ def create_visualization(asset_name: str, price_collection: str,
             if len(joined) >= 3:  # Need at least 3 points for meaningful correlation
                 correlation = joined['score'].corr(joined['price'])
                 data_counts["correlation"] = round(correlation, 3)
-                logger.info(f"Calculated correlation for {asset_name}: {correlation}")
+                print(f"Calculated correlation for {asset_name}: {correlation}")
             else:
-                logger.info(f"Not enough aligned data points for correlation calculation")
+                print(f"Not enough aligned data points for correlation calculation")
         except Exception as e:
-            logger.error(f"Error calculating correlation: {str(e)}")
+            print(f"Error calculating correlation: {str(e)}")
             data_counts["correlation"] = None
     
     # Create the visualization
@@ -289,36 +289,39 @@ async def dashboard():
     index_options = ""
     for index in assets["indices"]:
         index_options += f'<option value="{index["name"]}" data-price="{index["collection"]}" data-news="">{index["name"]}</option>'
+        
+    crypto_assets_json = json.dumps([{"name": c["name"], "price": c["collection"], "news": c["news_collection"]} for c in assets["crypto"]])
+    index_assets_json = json.dumps([{"name": i["name"], "price": i["collection"], "news": ""} for i in assets["indices"]])
     
-    return f"""
+    return """
     <html>
     <head>
         <title>Crypto Sentiment Dashboard</title>
         <style>
-            body {{
+            body {
                 font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
                 margin: 0;
                 padding: 0;
                 background-color: #f5f5f5;
                 color: #333;
-            }}
-            .container {{
+            }
+            .container {
                 max-width: 1200px;
                 margin: 0 auto;
                 padding: 20px;
-            }}
-            header {{
+            }
+            header {
                 background-color: #2c3e50;
                 color: white;
                 padding: 15px 0;
                 text-align: center;
                 margin-bottom: 30px;
-            }}
-            h1 {{
+            }
+            h1 {
                 margin: 0;
                 font-size: 24px;
-            }}
-            .controls {{
+            }
+            .controls {
                 display: flex;
                 justify-content: space-between;
                 margin-bottom: 20px;
@@ -326,59 +329,59 @@ async def dashboard():
                 padding: 15px;
                 border-radius: 5px;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            }}
-            .control-group {{
+            }
+            .control-group {
                 display: flex;
                 flex-direction: column;
-            }}
-            label {{
+            }
+            label {
                 margin-bottom: 5px;
                 font-weight: bold;
                 font-size: 14px;
-            }}
-            select, button {{
+            }
+            select, button {
                 padding: 8px 12px;
                 border: 1px solid #ddd;
                 border-radius: 4px;
                 font-size: 14px;
-            }}
-            button {{
+            }
+            button {
                 background-color: #3498db;
                 color: white;
                 border: none;
                 cursor: pointer;
                 transition: background-color 0.3s;
                 margin-top: 20px;
-            }}
-            button:hover {{
+            }
+            button:hover {
                 background-color: #2980b9;
-            }}
-            .chart-container {{
+            }
+            .chart-container {
                 background-color: white;
                 padding: 20px;
                 border-radius: 5px;
                 box-shadow: 0 1px 3px rgba(0,0,0,0.1);
                 margin-bottom: 30px;
-            }}
-            .chart-image {{
+            }
+            .chart-image {
                 width: 100%;
                 height: auto;
-            }}
-            .loading {{
+            }
+            .loading {
                 text-align: center;
                 padding: 50px;
                 font-size: 18px;
                 color: #7f8c8d;
-            }}
-            .data-stats {{
+            }
+            .data-stats {
                 display: flex;
                 justify-content: space-between;
                 margin-bottom: 15px;
                 padding: 10px;
                 background-color: #f8f9fa;
                 border-radius: 5px;
-            }}
-            .badge {{
+            }
+            .badge {
                 background-color: #3498db;
                 color: white;
                 padding: 5px 10px;
@@ -387,29 +390,29 @@ async def dashboard():
                 font-weight: bold;
                 display: inline-block;
                 margin-left: 5px;
-            }}
-            .badge-red {{
+            }
+            .badge-red {
                 background-color: #e74c3c;
-            }}
-            .badge-blue {{
+            }
+            .badge-blue {
                 background-color: #3498db;
-            }}
-            .badge-green {{
+            }
+            .badge-green {
                 background-color: #27ae60;
-            }}
-            .stat-item {{
+            }
+            .stat-item {
                 font-size: 14px;
                 display: flex;
                 align-items: center;
-            }}
-            .error {{
+            }
+            .error {
                 background-color: #e74c3c;
                 color: white;
                 padding: 10px;
                 border-radius: 5px;
                 margin-bottom: 20px;
                 display: none;
-            }}
+            }
         </style>
     </head>
     <body>
@@ -434,7 +437,7 @@ async def dashboard():
                 <div class="control-group">
                     <label for="assetSelect">Select Asset:</label>
                     <select id="assetSelect">
-                        {crypto_options}
+                        """ + crypto_options + """
                     </select>
                 </div>
                 
@@ -467,16 +470,12 @@ async def dashboard():
         
         <script>
             // Store asset options
-            const assetOptions = {{
-                "crypto": [
-                    {json.dumps([{"name": c["name"], "price": c["collection"], "news": c["news_collection"]} for c in assets["crypto"]])}
-                ],
-                "index": [
-                    {json.dumps([{"name": i["name"], "price": i["collection"], "news": ""} for i in assets["indices"]])}
-                ]
-            }};
+            const assetOptions = {
+                "crypto": """ + crypto_assets_json + """,
+                "index": """ + index_assets_json + """
+            };
             
-            function updateAssetOptions() {{
+            function updateAssetOptions() {
                 const assetType = document.getElementById('assetType').value;
                 const assetSelect = document.getElementById('assetSelect');
                 
@@ -484,17 +483,17 @@ async def dashboard():
                 assetSelect.innerHTML = '';
                 
                 // Add new options based on selected type
-                assetOptions[assetType].forEach(asset => {{
+                assetOptions[assetType].forEach(asset => {
                     const option = document.createElement('option');
                     option.value = asset.name;
                     option.dataset.price = asset.price;
                     option.dataset.news = asset.news || "";
                     option.textContent = asset.name;
                     assetSelect.appendChild(option);
-                }});
-            }}
+                });
+            }
             
-            async function updateChart() {{
+            async function updateChart() {
                 // Show loading
                 document.getElementById('loading').style.display = 'block';
                 document.getElementById('chartImage').style.display = 'none';
@@ -509,13 +508,13 @@ async def dashboard():
                 const newsCollection = selectedOption.dataset.news;
                 const days = document.getElementById('timeRange').value;
                 
-                try {{
+                try {
                     // Fetch the chart data
                     const response = await fetch(`/api/chart?asset_name=${encodeURIComponent(assetName)}&price_collection=${encodeURIComponent(priceCollection)}&news_collection=${encodeURIComponent(newsCollection)}&days=${days}`);
                     
-                    if (!response.ok) {{
+                    if (!response.ok) {
                         throw new Error(`Error: ${response.statusText}`);
-                    }}
+                    }
                     
                     const data = await response.json();
                     
@@ -546,20 +545,20 @@ async def dashboard():
                         correlationElement.textContent = 'N/A';
                         correlationElement.className = 'badge';
                     }
-                }} catch (error) {{
+                } catch (error) {
                     // Show error message
                     document.getElementById('errorMessage').textContent = `Failed to load chart: ${error.message}`;
                     document.getElementById('errorMessage').style.display = 'block';
-                }} finally {{
+                } finally {
                     // Hide loading indicator
                     document.getElementById('loading').style.display = 'none';
-                }}
-            }}
+                }
+            }
             
             // Initial chart load
-            document.addEventListener('DOMContentLoaded', () => {{
+            document.addEventListener('DOMContentLoaded', () => {
                 updateChart();
-            }});
+            });
         </script>
     </body>
     </html>
