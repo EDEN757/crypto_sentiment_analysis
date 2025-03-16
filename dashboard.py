@@ -511,21 +511,21 @@ async def dashboard():
                 
                 try {{
                     // Fetch the chart data
-                    const response = await fetch(`/api/chart?asset_name=${{encodeURIComponent(assetName)}}&price_collection=${{encodeURIComponent(priceCollection)}}&news_collection=${{encodeURIComponent(newsCollection)}}&days=${{days}}`);
+                    const response = await fetch(`/api/chart?asset_name=${encodeURIComponent(assetName)}&price_collection=${encodeURIComponent(priceCollection)}&news_collection=${encodeURIComponent(newsCollection)}&days=${days}`);
                     
                     if (!response.ok) {{
-                        throw new Error(`Error: ${{response.statusText}}`);
+                        throw new Error(`Error: ${response.statusText}`);
                     }}
                     
                     const data = await response.json();
                     
                     // Update chart image
-                    document.getElementById('chartImage').src = `data:image/png;base64,${{data.image}}`;
+                    document.getElementById('chartImage').src = `data:image/png;base64,${data.image}`;
                     document.getElementById('chartImage').style.display = 'block';
                     
                     // Update data count badges
                     document.getElementById('dataStats').style.display = 'flex';
-                    document.getElementById('daysCount').textContent = `${{data.counts.days}} days`;
+                    document.getElementById('daysCount').textContent = `${data.counts.days} days`;
                     document.getElementById('priceCount').textContent = data.counts.price_count;
                     document.getElementById('sentimentCount').textContent = data.counts.sentiment_count;
                     
@@ -548,7 +548,7 @@ async def dashboard():
                     }
                 }} catch (error) {{
                     // Show error message
-                    document.getElementById('errorMessage').textContent = `Failed to load chart: ${{error.message}}`;
+                    document.getElementById('errorMessage').textContent = `Failed to load chart: ${error.message}`;
                     document.getElementById('errorMessage').style.display = 'block';
                 }} finally {{
                     // Hide loading indicator
