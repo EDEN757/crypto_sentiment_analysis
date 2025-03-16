@@ -28,6 +28,7 @@ crypto_sentiment/
 │   ├── database.py       # MongoDB connection and operations
 │   ├── sentiment_analyzer.py # FinBERT sentiment analysis
 ├── tests/                # Unit and integration tests
+├── dashboard.py          # FastAPI web dashboard for data visualization
 ├── run_collector.py      # Script for collecting data (for crontab)
 ├── run_sentiment_analysis.py # Script for analyzing sentiment (for crontab)
 ├── setup_crontab.py      # Helper for setting up project and crontab
@@ -44,7 +45,7 @@ crypto_sentiment/
 - **Flexible Configuration**: Define which cryptocurrencies, indices, and news topics to track using a simple JSON configuration.
 - **FinBERT NLP Model**: Uses the state-of-the-art FinBERT sentiment analysis model trained specifically for financial text.
 - **Accurate Data Timestamps**: All data is stored with its original publication or market timestamp.
-- **Interactive Dashboard**: Web-based visualization of sentiment scores and price data with customizable time ranges.
+- **Interactive Dashboard**: Web-based visualization of sentiment scores and price data with customizable time ranges, correlation analysis, and asset selection options. Built with FastAPI for a responsive and user-friendly experience.
 - **Modular Design**: Easy to extend with new data sources, assets, or analysis methods.
 - **Automated Collection**: Configurable crontab integration for hands-off operation.
 - **Detailed Logging**: Comprehensive logging of all operations for troubleshooting.
@@ -182,12 +183,14 @@ You can run the scripts manually:
   python dashboard.py
   ```
   
-  Or use the provided script:
-  ```
-  ./run_dashboard.sh [port_number]
-  ```
-  
   Access the dashboard at http://your-server-ip:8000/dashboard
+  
+  The dashboard is implemented using FastAPI and provides an interactive web interface with the following features:
+  - Real-time visualization of sentiment scores and cryptocurrency prices
+  - Correlation analysis between sentiment and price movements
+  - Interactive charts with customizable time ranges (24 hours, 3 days, 7 days, 30 days)
+  - Asset selection options (cryptocurrencies and stock indices)
+  - Data statistics display showing number of data points and correlation strength
 
 ## Data Flow
 
@@ -205,6 +208,34 @@ You can run the scripts manually:
    - 30 minutes after collection, `run_sentiment_analysis.py` runs.
    - Any new articles without sentiment scores are analyzed using FinBERT.
    - Results are stored in MongoDB and as JSON files in the `data/` directory.
+
+## Dashboard
+
+The project includes a comprehensive web dashboard built with FastAPI for visualizing all collected and analyzed data.
+
+### Dashboard Features
+
+- **Interactive Charts**: Dual-axis charts that display both sentiment scores and price data on the same timeline.
+- **Correlation Analysis**: Automatically calculates and displays the correlation between sentiment scores and price movements.
+- **Asset Selection**: Dropdown menus to choose between different cryptocurrencies and stock indices.
+- **Time Range Selection**: Filter data by time periods (24 hours, 3 days, 7 days, or 30 days).
+- **Data Statistics**: Display of data point counts and correlation strength with color-coded indicators.
+- **Responsive Design**: Accessible from both desktop and mobile devices.
+
+To start the dashboard:
+```
+python dashboard.py
+```
+
+The dashboard will be available at `http://your-server-ip:8000/dashboard`
+
+### Dashboard Technical Details
+
+- Built with FastAPI as the backend web framework
+- Uses Matplotlib for generating data visualizations
+- Implements JavaScript for interactive elements and dynamic chart updates
+- MongoDB queries are optimized for time-range filtering
+- Correlation calculation between sentiment and price data
 
 ## Sentiment Analysis
 
