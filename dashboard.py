@@ -123,7 +123,7 @@ def get_price_data(collection_name: str, days: int) -> List[Dict[str, Any]]:
     return list(prices)
 
 def create_visualization(asset_name: str, price_collection: str, 
-                         news_collection: str, days: int) -> str:
+                         news_collection: str, days: int) -> dict:
     """Create visualization of sentiment and price data.
     
     Args:
@@ -133,11 +133,18 @@ def create_visualization(asset_name: str, price_collection: str,
         days: Number of days to look back
         
     Returns:
-        Base64 encoded image
+        Dictionary with base64 encoded image and data counts
     """
     # Get data
     sentiment_data = get_sentiment_data(news_collection, days)
     price_data = get_price_data(price_collection, days)
+    
+    # Store counts
+    data_counts = {
+        "sentiment_count": len(sentiment_data),
+        "price_count": len(price_data),
+        "days": days
+    }
     
     # Create DataFrame for sentiment data
     sentiment_df = pd.DataFrame([
@@ -166,7 +173,13 @@ def create_visualization(asset_name: str, price_collection: str,
         img_bytes.seek(0)
         
         # Convert to base64 for HTML embedding
-        return base64.b64encode(img_bytes.read()).decode('utf-8')
+        img_base64 = base64.b64encode(img_bytes.read()).decode('utf-8')
+        
+        # Return both the image and data counts
+        return {
+            "image": img_base64,
+            "counts": data_counts
+        }
     
     # Group sentiment by day and calculate mean
     if not sentiment_df.empty:
@@ -224,7 +237,13 @@ def create_visualization(asset_name: str, price_collection: str,
     img_bytes.seek(0)
     
     # Convert to base64 for HTML embedding
-    return base64.b64encode(img_bytes.read()).decode('utf-8')
+    img_base64 = base64.b64encode(img_bytes.read()).decode('utf-8')
+    
+    # Return both the image and data counts
+    return {
+        "image": img_base64,
+        "counts": data_counts
+    }
 
 # API Routes
 
@@ -327,6 +346,35 @@ async def dashboard():
                 font-size: 18px;
                 color: #7f8c8d;
             }}
+            .data-stats {{
+                display: flex;
+                justify-content: space-between;
+                margin-bottom: 15px;
+                padding: 10px;
+                background-color: #f8f9fa;
+                border-radius: 5px;
+            }}
+            .badge {{
+                background-color: #3498db;
+                color: white;
+                padding: 5px 10px;
+                border-radius: 15px;
+                font-size: 12px;
+                font-weight: bold;
+                display: inline-block;
+                margin-left: 5px;
+            }}
+            .badge-red {{
+                background-color: #e74c3c;
+            }}
+            .badge-blue {{
+                background-color: #3498db;
+            }}
+            .stat-item {{
+                font-size: 14px;
+                display: flex;
+                align-items: center;
+            }}
             .error {{
                 background-color: #e74c3c;
                 color: white;
@@ -379,6 +427,11 @@ async def dashboard():
             </div>
             
             <div class="chart-container">
+                <div class="data-stats" id="dataStats" style="display: none;">
+                    <div class="stat-item">Time Range: <span id="daysCount" class="badge"></span></div>
+                    <div class="stat-item">Price Points: <span id="priceCount" class="badge badge-red"></span></div>
+                    <div class="stat-item">Sentiment Articles: <span id="sentimentCount" class="badge badge-blue"></span></div>
+                </div>
                 <div id="loading" class="loading">Loading data...</div>
                 <img id="chartImage" class="chart-image" src="" style="display: none;" />
             </div>
@@ -441,6 +494,12 @@ async def dashboard():
                     // Update chart image
                     document.getElementById('chartImage').src = `data:image/png;base64,${{data.image}}`;
                     document.getElementById('chartImage').style.display = 'block';
+                    
+                    // Update data count badges
+                    document.getElementById('dataStats').style.display = 'flex';
+                    document.getElementById('daysCount').textContent = `${{data.counts.days}} days`;
+                    document.getElementById('priceCount').textContent = data.counts.price_count;
+                    document.getElementById('sentimentCount').textContent = data.counts.sentiment_count;
                 }} catch (error) {{
                     // Show error message
                     document.getElementById('errorMessage').textContent = `Failed to load chart: ${{error.message}}`;
@@ -479,9 +538,9 @@ async def get_chart(
             days = 7
         
         # For indices without news data, show only price
-        chart_image = create_visualization(asset_name, price_collection, news_collection, days)
+        chart_data = create_visualization(asset_name, price_collection, news_collection, days)
         
-        return {"image": chart_image}
+        return chart_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
