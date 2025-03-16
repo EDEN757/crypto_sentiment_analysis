@@ -231,8 +231,8 @@ def create_visualization(asset_name: str, price_collection: str,
 @app.get("/")
 async def root():
     """Redirect to dashboard page."""
-    return {"message": "Cryptocurrency Sentiment Analysis API", 
-            "dashboard": "/dashboard"}
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/dashboard")
 
 @app.get("/dashboard", response_class=HTMLResponse)
 async def dashboard():
