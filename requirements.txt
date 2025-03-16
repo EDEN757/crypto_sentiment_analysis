@@ -8,11 +8,17 @@ python-dotenv==1.0.0
 # Data Processing and Analysis
 pandas==2.1.3
 numpy==1.26.2
+matplotlib==3.8.2
 
 # NLP and Sentiment Analysis
 transformers==4.30.2
 torch==2.0.1
 nltk==3.8.1
+
+# Web Dashboard
+fastapi==0.109.0
+uvicorn==0.27.0
+jinja2==3.1.3
 
 # Logging and Utilities
 python-dateutil==2.8.2

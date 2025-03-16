@@ -44,6 +44,7 @@ crypto_sentiment/
 - **Flexible Configuration**: Define which cryptocurrencies, indices, and news topics to track using a simple JSON configuration.
 - **FinBERT NLP Model**: Uses the state-of-the-art FinBERT sentiment analysis model trained specifically for financial text.
 - **Accurate Data Timestamps**: All data is stored with its original publication or market timestamp.
+- **Interactive Dashboard**: Web-based visualization of sentiment scores and price data with customizable time ranges.
 - **Modular Design**: Easy to extend with new data sources, assets, or analysis methods.
 - **Automated Collection**: Configurable crontab integration for hands-off operation.
 - **Detailed Logging**: Comprehensive logging of all operations for troubleshooting.
@@ -175,6 +176,18 @@ You can run the scripts manually:
   ```
   python run_sentiment_analysis.py
   ```
+
+- To start the dashboard:
+  ```
+  python dashboard.py
+  ```
+  
+  Or use the provided script:
+  ```
+  ./run_dashboard.sh [port_number]
+  ```
+  
+  Access the dashboard at http://your-server-ip:8000/dashboard
 
 ## Data Flow
 
