@@ -143,7 +143,8 @@ def create_visualization(asset_name: str, price_collection: str,
     data_counts = {
         "sentiment_count": len(sentiment_data),
         "price_count": len(price_data),
-        "days": days
+        "days": days,
+        "correlation": None  # Will be calculated if enough data
     }
     
     # Create DataFrame for sentiment data
@@ -194,6 +195,26 @@ def create_visualization(asset_name: str, price_collection: str,
     if not price_df.empty:
         price_df['date'] = pd.to_datetime(price_df['date'])
         price_df = price_df.set_index('date')
+        
+    # Calculate correlation if both dataframes have data
+    if not sentiment_df.empty and not price_df.empty and len(sentiment_df) >= 3 and len(price_df) >= 3:
+        try:
+            # Resample both to daily frequency to align the data
+            daily_sentiment = sentiment_df.resample('D').mean()
+            daily_price = price_df.resample('D').mean()
+            
+            # Align the indexes and dropna
+            joined = pd.concat([daily_sentiment, daily_price], axis=1).dropna()
+            
+            if len(joined) >= 3:  # Need at least 3 points for meaningful correlation
+                correlation = joined['score'].corr(joined['price'])
+                data_counts["correlation"] = round(correlation, 3)
+                logger.info(f"Calculated correlation for {asset_name}: {correlation}")
+            else:
+                logger.info(f"Not enough aligned data points for correlation calculation")
+        except Exception as e:
+            logger.error(f"Error calculating correlation: {str(e)}")
+            data_counts["correlation"] = None
     
     # Create the visualization
     fig, ax1 = plt.subplots(figsize=(12, 7))
@@ -220,7 +241,10 @@ def create_visualization(asset_name: str, price_collection: str,
     plt.xticks(rotation=45)
     
     # Add title and legend
-    plt.title(f'{asset_name} Sentiment and Price - Last {days} Days')
+    title = f'{asset_name} Sentiment and Price - Last {days} Days'
+    if data_counts["correlation"] is not None:
+        title += f' (Correlation: {data_counts["correlation"]})'
+    plt.title(title)
     lines1, labels1 = ax1.get_legend_handles_labels()
     if not price_df.empty:
         lines2, labels2 = ax2.get_legend_handles_labels()
@@ -370,6 +394,9 @@ async def dashboard():
             .badge-blue {{
                 background-color: #3498db;
             }}
+            .badge-green {{
+                background-color: #27ae60;
+            }}
             .stat-item {{
                 font-size: 14px;
                 display: flex;
@@ -431,6 +458,7 @@ async def dashboard():
                     <div class="stat-item">Time Range: <span id="daysCount" class="badge"></span></div>
                     <div class="stat-item">Price Points: <span id="priceCount" class="badge badge-red"></span></div>
                     <div class="stat-item">Sentiment Articles: <span id="sentimentCount" class="badge badge-blue"></span></div>
+                    <div class="stat-item">Correlation: <span id="correlationValue" class="badge badge-green">N/A</span></div>
                 </div>
                 <div id="loading" class="loading">Loading data...</div>
                 <img id="chartImage" class="chart-image" src="" style="display: none;" />
@@ -500,6 +528,24 @@ async def dashboard():
                     document.getElementById('daysCount').textContent = `${{data.counts.days}} days`;
                     document.getElementById('priceCount').textContent = data.counts.price_count;
                     document.getElementById('sentimentCount').textContent = data.counts.sentiment_count;
+                    
+                    // Update correlation value if available
+                    const correlationElement = document.getElementById('correlationValue');
+                    if (data.counts.correlation !== null) {
+                        correlationElement.textContent = data.counts.correlation;
+                        
+                        // Change color based on correlation strength
+                        if (Math.abs(data.counts.correlation) > 0.7) {
+                            correlationElement.className = 'badge ' + (data.counts.correlation > 0 ? 'badge-green' : 'badge-red');
+                        } else if (Math.abs(data.counts.correlation) > 0.3) {
+                            correlationElement.className = 'badge badge-blue';
+                        } else {
+                            correlationElement.className = 'badge';
+                        }
+                    } else {
+                        correlationElement.textContent = 'N/A';
+                        correlationElement.className = 'badge';
+                    }
                 }} catch (error) {{
                     // Show error message
                     document.getElementById('errorMessage').textContent = `Failed to load chart: ${{error.message}}`;
