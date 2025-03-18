@@ -27,6 +27,10 @@ def main():
     lock_file = BASE_DIR / 'data_collection.lock'
     collection_start_time = datetime.now()
     
+    # Add unique run identifier to help track collection runs in logs
+    run_id = collection_start_time.strftime("%Y%m%d_%H%M%S")
+    print(f"Starting collection run {run_id}")
+    
     if lock_file.exists():
         # Check if the lock file is recent (< 30 minutes old)
         lock_time = datetime.fromtimestamp(os.path.getmtime(lock_file))
@@ -42,7 +46,8 @@ def main():
         f.write(f"{config.DATA_COLLECTION_INTERVAL_HOURS}-hour collection cycle started at {collection_start_time}")
     
     # Configure logging specifically for cron execution
-    log_file = BASE_DIR / 'logs' / f'cron-collector-{collection_start_time.strftime("%Y%m%d")}.log'
+    # Include run_id in the log filename for easier debugging
+    log_file = BASE_DIR / 'logs' / f'cron-collector-{run_id}.log'
     os.makedirs(os.path.dirname(log_file), exist_ok=True)
     
     # Use both file and stderr logging for cron
@@ -57,10 +62,11 @@ def main():
     
     logger = logging.getLogger(__name__)
     interval = config.DATA_COLLECTION_INTERVAL_HOURS
-    logger.info(f"Starting {interval}-hour data collection cycle at {collection_start_time}")
+    logger.info(f"Starting {interval}-hour data collection cycle (Run ID: {run_id}) at {collection_start_time}")
     logger.info(f"Using configuration with {len(config.DEFAULT_CONFIG['assets']['crypto'])} crypto assets, "
                 f"{len(config.DEFAULT_CONFIG['assets']['indices'])} indices, and "
                 f"{len(config.DEFAULT_CONFIG['news_queries'])} news queries")
+    logger.info(f"Articles per query: {config.ARTICLES_PER_QUERY}, Default delay: {config.DEFAULT_DELAY_HOURS}h")
     
     success = False
     try:

@@ -45,7 +45,8 @@ class DataCollector:
             
             # Calculate date range based on delay - ensure timezone-naive
             end_date = datetime.utcnow().replace(tzinfo=None) - timedelta(hours=delay_hours)
-            start_date = end_date - timedelta(days=1)  # Get 24h window with specified delay
+            # Increase window to collect more diverse articles - using 3 days instead of 1
+            start_date = end_date - timedelta(days=3)  # Get 72h window with specified delay
             
             # Format dates for API call
             from_date = start_date.date().isoformat()
@@ -67,8 +68,26 @@ class DataCollector:
             # Sort articles by published date (newest first)
             articles.sort(key=lambda x: x.get('publishedAt', ''), reverse=True)
             
-            # Limit the number of articles based on configuration
-            articles_to_store = articles[:config.ARTICLES_PER_QUERY]
+            # Filter articles for more diverse collection
+            # Get unique sources to ensure diversity
+            seen_sources = set()
+            diverse_articles = []
+            
+            # First pass: try to get articles from different sources
+            for article in articles:
+                source = article.get('source', {}).get('name', '')
+                if source and source not in seen_sources and len(diverse_articles) < config.ARTICLES_PER_QUERY:
+                    seen_sources.add(source)
+                    diverse_articles.append(article)
+            
+            # Second pass: if we don't have enough articles yet, add more regardless of source
+            if len(diverse_articles) < config.ARTICLES_PER_QUERY:
+                remaining_count = config.ARTICLES_PER_QUERY - len(diverse_articles)
+                # Get articles we haven't added yet
+                remaining_articles = [a for a in articles if a not in diverse_articles]
+                diverse_articles.extend(remaining_articles[:remaining_count])
+            
+            articles_to_store = diverse_articles
             
             logger.info(f"Collected {len(articles)} articles for query: '{query}' from {delay_hours}h ago, "
                        f"storing {len(articles_to_store)} most recent")

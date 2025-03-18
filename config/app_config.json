@@ -29,6 +29,6 @@
   ],
   "collection_interval_hours": 3,
   "sentiment_model": "ProsusAI/finbert",
-  "articles_per_query": 2,
+  "articles_per_query": 5,
   "default_delay_hours": 24
 }

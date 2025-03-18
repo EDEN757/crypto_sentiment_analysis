@@ -189,8 +189,10 @@ class MongoDBClient:
             
             for article in articles:
                 # Create a filter to find potential duplicates
+                # Make duplicate detection more specific by adding URL
                 filter_doc = {
                     "title": article["title"],
+                    "url": article.get("url", ""),  # Add URL to the filter criteria
                     "source.name": article["source"]["name"] if "source" in article and "name" in article["source"] else None
                 }
                 
