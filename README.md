@@ -20,14 +20,12 @@ crypto_sentiment/
 ├── config/               # Configuration files (app_config.json)
 ├── data/                 # Local data storage (sentiment analysis results)
 ├── logs/                 # Application logs
-├── models/               # Downloaded models (auto-created)
 ├── src/                  # Source code
 │   ├── __init__.py       
 │   ├── config.py         # Configuration loader
 │   ├── data_collector.py # Data collection from APIs
 │   ├── database.py       # MongoDB connection and operations
 │   ├── sentiment_analyzer.py # FinBERT sentiment analysis
-├── tests/                # Unit and integration tests
 ├── dashboard.py          # FastAPI web dashboard for data visualization
 ├── run_collector.py      # Script for collecting data (for crontab)
 ├── run_sentiment_analysis.py # Script for analyzing sentiment (for crontab)
@@ -38,6 +36,8 @@ crypto_sentiment/
 ├── requirements.txt      # Project dependencies
 └── README.md             # This file
 ```
+
+Note: FinBERT model files are automatically downloaded by the transformers library when needed and stored in the cache directory.
 
 ## Key Features
 
